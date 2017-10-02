@@ -1,13 +1,22 @@
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+<!--suppress NonOsgiMavenDependency -->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+
    <modelVersion>4.0.0</modelVersion>
 
    <properties>
       <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
       <sureFireOptions9 />
       <sureFireForks9>false</sureFireForks9>
+      <surefireArgLine />
+      <skip.unit.tests>false</skip.unit.tests>
       <artifact.classifier />
 
-      <jnr.unixsocket.version>0.19-SNAPSHOT</jnr.unixsocket.version>
+      <kotlin.compiler.incremental>true</kotlin.compiler.incremental>
+      <kotlin.compiler.jvmTarget>1.8</kotlin.compiler.jvmTarget>
+
+      <kotlin.version>1.1.51</kotlin.version>
       <maven.release.version>2.5.3</maven.release.version>
       <slf4j.version>1.7.25</slf4j.version>
       <log4j.version>2.9.0</log4j.version>
@@ -77,22 +86,24 @@
          <artifactId>slf4j-api</artifactId>
          <version>${slf4j.version}</version>
       </dependency>
+
       <dependency>
-          <groupId>com.zaxxer</groupId>
-          <artifactId>jnr-unixsocket</artifactId>
-          <version>${jnr.unixsocket.version}</version>
-         <exclusions>
-            <exclusion>
-               <groupId>com.github.jnr</groupId>
-               <artifactId>jnr-constants</artifactId>
-            </exclusion>
-         </exclusions>
+         <groupId>net.java.dev.jna</groupId>
+         <artifactId>jna</artifactId>
+         <version>4.5.0</version>
       </dependency>
 
       <dependency>
-         <groupId>com.zaxxer</groupId>
-         <artifactId>jnr-constants</artifactId>
-         <version>0.9.10-SNAPSHOT</version>
+         <groupId>org.jetbrains.kotlin</groupId>
+         <artifactId>kotlin-stdlib-jre8</artifactId>
+         <version>${kotlin.version}</version>
+      </dependency>
+
+      <dependency>
+         <groupId>org.apache.maven.plugins</groupId>
+         <artifactId>maven-gpg-plugin</artifactId>
+         <version>1.6</version>
+         <type>maven-plugin</type>
       </dependency>
 
       <!-- Test -->
@@ -120,9 +131,18 @@
          <version>${junit.version}</version>
          <scope>test</scope>
       </dependency>
+      <dependency>
+         <groupId>org.jetbrains.kotlin</groupId>
+         <artifactId>kotlin-test-junit</artifactId>
+         <version>${kotlin.version}</version>
+         <scope>test</scope>
+      </dependency>
    </dependencies>
 
    <build>
+      <sourceDirectory>src/main/kotlin</sourceDirectory>
+      <testSourceDirectory>src/test/kotlin</testSourceDirectory>
+
       <plugins>
          <plugin>
             <groupId>org.jacoco</groupId>
@@ -155,35 +175,54 @@
                </execution>
             </executions>
          </plugin>
-
          <plugin>
-            <groupId>org.apache.felix</groupId>
-            <artifactId>maven-bundle-plugin</artifactId>
-            <version>${felix.bundle.plugin.version}</version>
-            <extensions>true</extensions>
-            <configuration>
-               <classifier>${artifact.classifier}</classifier>
-               <instructions>
-                  <Bundle-Name>jnb-ping</Bundle-Name>
-                  <Export-Package>
-                     com.zaxxer.ping
-                  </Export-Package>
-                  <Private-Package>com.zaxxer.ping.internal.*</Private-Package>
-                  <_exportcontents>
-                     com.zaxxer.ping,
-                  </_exportcontents>
-                  <Import-Package>
-                     org.slf4j;version="[1.6,2)",
-                  </Import-Package>
-                  <Bundle-SymbolicName>${project.groupId}.${project.artifactId}</Bundle-SymbolicName>
-                  <DynamicImport-Package>*</DynamicImport-Package>
-               </instructions>
-            </configuration>
+            <groupId>org.jetbrains.kotlin</groupId>
+            <artifactId>kotlin-maven-plugin</artifactId>
+            <version>${kotlin.version}</version>
             <executions>
-               <!-- This execution makes sure that the manifest is available when the tests are executed -->
                <execution>
+                  <id>compile</id>
+                  <phase>compile</phase>
                   <goals>
-                     <goal>manifest</goal>
+                     <goal>compile</goal>
+                  </goals>
+               </execution>
+               <execution>
+                  <id>test-compile</id>
+                  <phase>test-compile</phase>
+                  <goals>
+                     <goal>test-compile</goal>
+                  </goals>
+               </execution>
+            </executions>
+            <configuration>
+               <jvmTarget>1.8</jvmTarget>
+            </configuration>
+         </plugin>
+         <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-compiler-plugin</artifactId>
+            <executions>
+               <execution>
+                  <id>default-compile</id>
+                  <phase>none</phase>
+               </execution>
+               <execution>
+                  <id>default-testCompile</id>
+                  <phase>none</phase>
+               </execution>
+               <execution>
+                  <id>compile</id>
+                  <phase>compile</phase>
+                  <goals>
+                     <goal>compile</goal>
+                  </goals>
+               </execution>
+               <execution>
+                  <id>testCompile</id>
+                  <phase>test-compile</phase>
+                  <goals>
+                     <goal>testCompile</goal>
                   </goals>
                </execution>
             </executions>
@@ -193,13 +232,33 @@
       <pluginManagement>
          <plugins>
             <plugin>
+               <artifactId>kotlin-maven-plugin</artifactId>
+               <groupId>org.jetbrains.kotlin</groupId>
+               <version>${kotlin.version}</version>
+
+               <executions>
+                  <execution>
+                     <id>compile</id>
+                     <goals> <goal>compile</goal> </goals>
+                  </execution>
+
+                  <execution>
+                     <id>test-compile</id>
+                     <goals> <goal>test-compile</goal> </goals>
+                  </execution>
+               </executions>
+            </plugin>
+
+            <plugin>
                <groupId>org.apache.maven.plugins</groupId>
-               <artifactId>maven-compiler-plugin</artifactId>
-               <version>3.7.0</version>
-               <extensions>true</extensions>
+               <artifactId>maven-jar-plugin</artifactId>
+               <version>2.6</version>
                <configuration>
-                  <source>1.8</source>
-                  <target>1.8</target>
+                  <archive>
+                     <manifest>
+                        <addClasspath>true</addClasspath>
+                     </manifest>
+                  </archive>
                </configuration>
             </plugin>
 
@@ -251,7 +310,7 @@
                <version>2.10.4</version>
                <configuration>
                   <show>public</show>
-                  <excludePackageNames></excludePackageNames>
+                  <excludePackageNames>com.zaxxer.ping.impl</excludePackageNames>
                   <attach>true</attach>
                   <maxmemory>1024m</maxmemory>
                </configuration>
@@ -313,29 +372,6 @@
                </plugin>
             </plugins>
          </build>
-      </profile>
-
-      <profile>
-         <id>felix</id>
-         <activation>
-            <activeByDefault>true</activeByDefault>
-            <property>
-               <name>pax.exam.framework</name>
-               <value>felix</value>
-            </property>
-         </activation>
-         <properties>
-            <pax.exam.framework>felix</pax.exam.framework>
-            <pax.exam.logging>none</pax.exam.logging>
-         </properties>
-         <dependencies>
-            <dependency>
-               <groupId>org.apache.felix</groupId>
-               <artifactId>org.apache.felix.framework</artifactId>
-               <version>${felix.version}</version>
-               <scope>test</scope>
-            </dependency>
-         </dependencies>
       </profile>
    </profiles>
 </project>

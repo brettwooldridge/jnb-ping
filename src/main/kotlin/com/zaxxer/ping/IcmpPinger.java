@@ -1,27 +1,22 @@
 package com.zaxxer.ping;
 
 import jnr.constants.platform.IPProto;
-import jnr.constants.platform.SocketOption;
 import jnr.enxio.channels.NativeSelectorProvider;
-import jnr.ffi.Platform;
 import jnr.ffi.Pointer;
 import jnr.ffi.Runtime;
 import jnr.ffi.Struct;
 import jnr.ffi.Union;
-import jnr.ffi.provider.MemoryManager;
 import jnr.unixsocket.UnixDatagramChannel;
-import jnr.unixsocket.UnixSocketAddress;
-import jnr.unixsocket.UnixSocketChannel;
 import jnr.unixsocket.UnixSocketOptions;
 
 import java.io.IOException;
+import java.net.SocketAddress;
 import java.nio.ByteBuffer;
-import java.nio.channels.ClosedChannelException;
 import java.nio.channels.SelectionKey;
-import java.nio.channels.Selector;
 import java.nio.channels.spi.AbstractSelector;
 import java.util.Iterator;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static jnr.constants.platform.IPProto.IPPROTO_ICMP;
 import static jnr.constants.platform.ProtocolFamily.PF_INET;
@@ -85,13 +80,13 @@ public class IcmpPinger
    /**
     * https://stackoverflow.com/questions/8290046/icmp-sockets-linux
     */
-   public void ping(PingResponseHandler handler) throws IOException
+   public void ping(SocketAddress socketAddress, PingResponseHandler handler) throws IOException
    {
       UnixDatagramChannel pingChannel = UnixDatagramChannel.open(PF_INET, IPPROTO_ICMP.intValue());
       pingChannel.configureBlocking(false);
       pingChannel.setOption(UnixSocketOptions.IP_RECVTTL, 1);
       pingChannel.setOption(UnixSocketOptions.IP_RETOPTS, 1);
-      pingChannel.register(selector, SelectionKey.OP_WRITE, new PingActor(pingChannel, selector, handler));
+      pingChannel.register(selector, SelectionKey.OP_WRITE, new PingActor(pingChannel, socketAddress, selector, handler));
    }
 
    public void ping6(PingResponseHandler handler) throws IOException
@@ -100,6 +95,8 @@ public class IcmpPinger
       pingDatagramChannel.configureBlocking(false);
 
    }
+
+   private static final AtomicInteger sequence = new AtomicInteger();
 
    private static final class PingActor
    {
@@ -110,13 +107,15 @@ public class IcmpPinger
       private final AbstractSelector selector;
       private final PingResponseHandler handler;
       private final ByteBuffer buf = ByteBuffer.allocateDirect(2048);
+      private final SocketAddress socketAddress;
       private volatile int state = STATE_XMIT;
 
-      PingActor(UnixDatagramChannel pingChannel, AbstractSelector selector, PingResponseHandler handler)
+      PingActor(UnixDatagramChannel pingChannel, SocketAddress socketAddress, AbstractSelector selector, PingResponseHandler handler)
       {
          this.pingChannel = pingChannel;
          this.selector = selector;
          this.handler = handler;
+         this.socketAddress = socketAddress;
       }
 
       int getState()
@@ -130,6 +129,7 @@ public class IcmpPinger
             icmphdr icmpHeader = new icmphdr(runtime);
             icmpHeader.type.set(ICMP_ECHO);
             icmpHeader.un.echo.id.set(1234); // arbitrary id ... really?
+            icmpHeader.un.echo.sequence.set(sequence.incrementAndGet());
 
             final int icmpHdrSize = icmphdr.size(icmpHeader);
 
@@ -138,20 +138,28 @@ public class IcmpPinger
 
             Pointer icmpHeaderPointer = Struct.getMemory(icmpHeader);
             icmpHeaderPointer.transferTo(0, bufPointer, 0, icmpHdrSize);
+            buf.limit(icmpHdrSize);
             // icmpHeaderPointer.transferTo(icmpHdrSize, bufPointer, 0);
 
+            pingChannel.send(buf, socketAddress);
 
             state = STATE_RECV;
             pingChannel.register(selector, SelectionKey.OP_READ, this);
          }
-         catch (ClosedChannelException e) {
+         catch (IOException e) {
             handler.onError();
          }
       }
 
       void recvIcmp()
       {
-
+         buf.flip();
+         try {
+            pingChannel.read(buf);
+            System.err.println(HexDumpElf.dump(0, buf.array(), buf.arrayOffset(), buf.limit()));
+         } catch (IOException e) {
+            handler.onError();
+         }
       }
    }
 
