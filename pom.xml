@@ -26,7 +26,7 @@
    <groupId>com.zaxxer</groupId>
    <artifactId>jnb-ping</artifactId>
    <version>0.9.0-SNAPSHOT</version>
-   <packaging>bundle</packaging>
+   <packaging>jar</packaging>
 
    <name>jnb-ping</name>
    <description>Java Non-Blocking Ping (ICMP)</description>
@@ -88,9 +88,9 @@
       </dependency>
 
       <dependency>
-         <groupId>net.java.dev.jna</groupId>
-         <artifactId>jna</artifactId>
-         <version>4.5.0</version>
+         <groupId>com.github.jnr</groupId>
+         <artifactId>jnr-enxio</artifactId>
+         <version>0.16</version>
       </dependency>
 
       <dependency>
@@ -199,7 +199,7 @@
                <jvmTarget>1.8</jvmTarget>
             </configuration>
          </plugin>
-         <plugin>
+         <!-- plugin>
             <groupId>org.apache.maven.plugins</groupId>
             <artifactId>maven-compiler-plugin</artifactId>
             <executions>
@@ -226,7 +226,7 @@
                   </goals>
                </execution>
             </executions>
-         </plugin>
+         </plugin -->
       </plugins>
 
       <pluginManagement>
