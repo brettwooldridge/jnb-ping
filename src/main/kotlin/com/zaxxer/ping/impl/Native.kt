@@ -1,3 +1,19 @@
+/*
+ * Copyright (C) 2017 Brett Wooldridge
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 @file:Suppress("PropertyName", "unused")
 
 package com.zaxxer.ping.impl
@@ -6,24 +22,45 @@ import jnr.constants.platform.AddressFamily.AF_INET
 import jnr.constants.platform.AddressFamily.AF_INET6
 import jnr.ffi.LibraryLoader
 import jnr.ffi.NativeType
-import jnr.ffi.Platform.getNativePlatform
+import jnr.ffi.Platform
 import jnr.ffi.Pointer
 import jnr.ffi.Struct
-import jnr.ffi.Union
 import jnr.ffi.annotations.In
 import jnr.ffi.annotations.Out
+import jnr.ffi.byref.IntByReference
 import jnr.ffi.types.size_t
+import jnr.ffi.types.socklen_t
 import jnr.ffi.types.ssize_t
+import jnr.posix.POSIXFactory
 import java.nio.ByteBuffer
-
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * Created by brettw on 2017/10/03.
+ * Created by Brett Wooldridge on 2017/10/03.
  */
 
-val runtime = jnr.ffi.Runtime.getSystemRuntime()
+const val ICMP_MINLEN = 8
 
-val libc = LibraryLoader.create(LibC::class.java).load(getNativePlatform().standardCLibraryName)
+val runtime = jnr.ffi.Runtime.getSystemRuntime()
+val platform = Platform.getNativePlatform()
+val posix = POSIXFactory.getNativePOSIX()
+val libc = LibraryLoader.create(LibC::class.java).load(platform.standardCLibraryName)
+
+abstract class PingActor {
+   companion object {
+      val sequence = AtomicInteger()
+
+      public val STATE_XMIT = 0
+      public val STATE_RECV = 1
+   }
+
+   @Volatile internal var state = STATE_XMIT
+      internal set
+
+   abstract fun sendIcmp()
+
+   abstract fun recvIcmp()
+}
 
 open class SockAddr : Struct(runtime)
 
@@ -91,151 +128,12 @@ class icmphdr : Struct(runtime) {
    }
 } */
 
-/*
- * Structure of an internet header, naked of options.
- */
-// struct ip {
-class BsdIp : Struct(runtime) {
-   // u_char	ip_vhl;			/* version << 4 | header length >> 2 */
-   val ip_vhl = Unsigned8()
-
-   // u_char	ip_tos;			/* type of service */
-	// u_short	ip_len;			/* total length */
-	// u_short	ip_id;			/* identification */
-	// u_short	ip_off;			/* fragment offset field */
-   val ip_tos = Unsigned8()
-   val ip_len = Unsigned16()
-   val ip_id = Unsigned16()
-   val ip_off = Unsigned16()
-
-	// u_char	ip_ttl;			/* time to live */
-   // u_char	ip_p;			/* protocol */
-   // u_short	ip_sum;			/* checksum */
-   val ip_ttl = Unsigned8()
-   val ip_p = Unsigned8()
-   val ip_sum = Unsigned16()
-
-   // struct in_addr  ip_src, ip_dst; /* source and dest address */
-   val ip_src = Unsigned32()
-   val ip_dst = Unsigned32()
-}
-
-// union {
-class BsdHun : Union(runtime) {
-   // u_char ih_pptr;			   /* ICMP_PARAMPROB */
-   // struct in_addr ih_gwaddr;	/* ICMP_REDIRECT */
-   val ih_pptr = Unsigned8()
-   val ih_gwaddr = Unsigned32()
-
-   // struct ih_idseq {
-   //    n_short	icd_id;
-   //    n_short	icd_seq;
-   // } ih_idseq;
-   class BsdIdSeq : Struct(runtime) {
-      val icd_id = Unsigned16()
-      val icd_seq = Unsigned16()
-   }
-   val ih_idseq = inner(BsdIdSeq())
-
-   // int ih_void;
-   val ih_void = Unsigned32()
-
-   // /* ICMP_UNREACH_NEEDFRAG -- Path MTU Discovery (RFC1191) */
-   // struct ih_pmtu {
-   //    n_short ipm_void;
-   //    n_short ipm_nextmtu;
-   // } ih_pmtu;
-   class BsdPmtu : Struct(runtime) {
-      val ipm_void = Unsigned16()
-      val ipm_nextmtu = Unsigned16()
-   }
-   val ih_pmtu = inner(BsdPmtu())
-
-   // struct ih_rtradv {
-   //    u_char irt_num_addrs;
-   //    u_char irt_wpa;
-   //    u_int16_t irt_lifetime;
-   // } ih_rtradv;
-   class BsdRtradv : Struct(runtime) {
-      val irt_num_addrs = Unsigned8()
-      val irt_wpa = Unsigned8()
-      val irt_lifetime = Unsigned16()
-   }
-   val ih_rtradv = inner(BsdRtradv())
-}
-
-// union {
-class BsdDun : Union(runtime) {
-   // struct id_ts {
-   //    n_time its_otime;
-   //    n_time its_rtime;
-   //    n_time its_ttime;
-   // } id_ts;
-   class BsdIdTs : Struct(runtime) {
-      var its_otime = Unsigned32()
-      var its_rtime = Unsigned32()
-      var its_ttime = Unsigned32()
-   }
-   val id_ts = inner(BsdIdTs())
-
-   // struct id_ip  {
-   //    struct ip idi_ip;
-   //    /* options and then 64 bits of data */
-   // } id_ip;
-   class BsdIdIp : Struct(runtime) {
-      val idi_ip = inner(BsdIp())
-   }
-   val id_ip = inner(BsdIdIp())
-
-   // struct icmp_ra_addr id_radv;
-   val id_radv = inner(BsdRaAddr())
-
-   // /*
-   //  * Internal of an ICMP Router Advertisement
-   //  */
-   // struct icmp_ra_addr {
-   //    u_int32_t ira_addr;
-   //    u_int32_t ira_preference;
-   // };
-   class BsdRaAddr : Struct(runtime) {
-      val ira_addr = Unsigned32()
-      val ira_preference = Unsigned32()
-   }
-
-   // u_int32_t id_mask;
-   val id_mask = Unsigned32()
-
-   // char id_data[1];
-   val id_data = Unsigned8()
-}
-
 open class Icmp : Struct(runtime)
-
-/*
- * Structure of an icmp header.
- */
-// struct icmp {
-class BsdIcmp : Icmp() {
-   // u_char	icmp_type;		/* type of message, see below */
-   // u_char	icmp_code;		/* type sub code */
-   // u_short	icmp_cksum;		/* ones complement cksum of struct */
-   val icmp_type = Unsigned8()
-   val icmp_code = Unsigned8()
-   val icmp_cksum = Unsigned16()
-
-   // union {
-   val icmp_hun = inner(BsdHun())
-   // } icmp_hun;
-
-   // union {
-   val icmp_dun = inner(BsdDun())
-   // } icmp_dun
-}
-
-
 
 interface LibC {
    fun socket(domain : Int, type : Int, protocol : Int) : Int
+
+   fun setsockopt(fd : Int, level : Int, option : Int, @In value : IntByReference, @socklen_t len : Int) : Int
 
    fun inet_pton(af : Int, cp : String, buf : Pointer) : Int
 
@@ -266,7 +164,10 @@ interface LibC {
       val PF_INET = AF_INET.intValue()
       val PF_INET6 = AF_INET6.intValue()
       val SOCK_DGRAM = jnr.constants.platform.Sock.SOCK_DGRAM.intValue()
-      val ICMP_MINLEN = 8
+
+      val SOL_SOCKET = if (platform.isBSD) 0xffff else 1
+      val SO_TIMESTAMP = if (platform.isBSD) 0x0400 else 29
+      val SO_RCVBUF = if (platform.isBSD) 0x1002 else 8
    }
 }
 
@@ -275,26 +176,9 @@ fun htons(bytes : Short) : Short {
    return java.lang.Short.reverseBytes(bytes)
 }
 
-
-// See https://opensource.apple.com/source/network_cmds/network_cmds-329.2/ping.tproj/ping.c
-fun bsd_cksum(buf : ByteBuffer, len : Int) : Int {
-   var sum = 0
-
-   buf.mark()
-   var nleft = len
-
-   while (nleft > 1) {
-      sum += (buf.get().toInt() shl 8) + (buf.get())   // read 16-bit unsigned
-      nleft -= 2
-   }
-
-   if (nleft == 1) {
-      sum += buf.get().toShort()
-   }
-
-   buf.reset()
-
-   sum = (sum shr 16) + (sum and 0xffff)
-   sum += (sum shr 16)
-   return (sum.inv() and 0xffff)
+fun htonl(value : Long) : Long {
+   return ((value and 0xff000000) shr 24) or
+          ((value and 0x00ff0000) shr 8) or
+          ((value and 0x0000ff00) shl 8) or
+          ((value and 0x000000ff) shl 24)
 }
