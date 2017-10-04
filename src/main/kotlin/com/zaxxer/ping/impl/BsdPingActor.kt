@@ -20,16 +20,13 @@ package com.zaxxer.ping.impl
 
 import com.zaxxer.ping.HexDumpElf
 import com.zaxxer.ping.IcmpPinger
-import com.zaxxer.ping.impl.LibC.Companion.SOL_SOCKET
-import com.zaxxer.ping.impl.LibC.Companion.SO_RCVBUF
-import com.zaxxer.ping.impl.LibC.Companion.SO_TIMESTAMP
 import jnr.ffi.Struct
 import jnr.ffi.Union
-import jnr.ffi.byref.IntByReference
 import jnr.posix.DefaultNativeTimeval
 import java.nio.ByteBuffer
 import java.nio.channels.SelectionKey
 import java.nio.channels.spi.AbstractSelector
+import java.util.concurrent.atomic.AtomicInteger
 
 const val IP_MAXPACKET = 65535
 const val DEFDATALEN = 56 /* default data length */
@@ -43,6 +40,7 @@ class BsdPingActor(private val selector : AbstractSelector,
                    handler : IcmpPinger.PingResponseHandler,
                    private val datalen : Int = DEFDATALEN) : PingActor() {
 
+   private val id = (ID_SEQUENCE.getAndIncrement() % 0xffff).toShort()
    private val buf = ByteBuffer.allocateDirect(128)
 
    override fun sendIcmp() {
@@ -50,15 +48,10 @@ class BsdPingActor(private val selector : AbstractSelector,
       val outpackBuffer = buf.slice()
       buf.clear()
 
-      // val bufferAddress = runtime.memoryManager.newPointer(outpackBuffer)
-      val outpacketPointer = runtime.memoryManager.newPointer(outpackBuffer) //bufferAddress.slice(SIZEOF_STRUCT_IP.toLong())
-      val icmplen = SIZEOF_STRUCT_IP + ICMP_MINLEN
+      val outpacketPointer = runtime.memoryManager.newPointer(outpackBuffer)
 
-      val maxPayload = IP_MAXPACKET - icmplen
+      val maxPayload = IP_MAXPACKET - (SIZEOF_STRUCT_IP + ICMP_MINLEN)
       if (datalen > maxPayload) error("packet size too large: $datalen > $maxPayload")
-
-      // val sendlen = icmplen + datalen
-      // val dataPointer = outpacketPointer.slice(ICMP_MINLEN + SIZEOF_STRUCT_TV32)
 
       val timing = (datalen >= SIZEOF_STRUCT_TV32)
 
@@ -66,12 +59,6 @@ class BsdPingActor(private val selector : AbstractSelector,
       tmpBuffer.position(ICMP_MINLEN + SIZEOF_STRUCT_TV32)
       for (i in SIZEOF_STRUCT_TV32..datalen)
          tmpBuffer.put(i.toByte())
-
-      val on = IntByReference(1)
-      libc.setsockopt(pingChannel.fd, SOL_SOCKET, SO_TIMESTAMP, on, on.nativeSize(runtime))
-
-      val rcvbuf = IntByReference(2048)
-      libc.setsockopt(pingChannel.fd, SOL_SOCKET, SO_RCVBUF, rcvbuf, rcvbuf.nativeSize(runtime))
 
       if (timing) {
          val timeval = DefaultNativeTimeval(runtime)
@@ -88,22 +75,19 @@ class BsdPingActor(private val selector : AbstractSelector,
       icmp.icmp_type.set(IcmpPinger.ICMP_ECHO)
       icmp.icmp_code.set(0)
       icmp.icmp_cksum.set(0)
-      icmp.icmp_hun.ih_idseq.icd_seq.set(htons(sequence.getAndIncrement().toShort()))
-      icmp.icmp_hun.ih_idseq.icd_id.set(htons(1234.toShort())) // arbitrary id ... really?
+      icmp.icmp_hun.ih_idseq.icd_seq.set(htons(sequence++))
+      icmp.icmp_hun.ih_idseq.icd_id.set(htons(id))
 
-      val cc = (ICMP_MINLEN + datalen)
-      outpackBuffer.limit(cc)
+      outpackBuffer.limit(ICMP_MINLEN + datalen)
 
       val cksumBuffer = outpackBuffer.slice()
-//      cksumBuffer.position(SIZEOF_STRUCT_IP)
       val cksum = bsd_cksum(cksumBuffer)
-      println("Checksum: $cksum")
       icmp.icmp_cksum.set(htons(cksum.toShort()))
 
-      dumpBuffer("Final buffer", outpackBuffer)
+      dumpBuffer(message = "Final buffer", buffer = outpackBuffer)
 
       val rc = pingChannel.write(outpackBuffer)
-      if (rc == cc) {
+      if (rc == outpackBuffer.remaining()) {
          state = STATE_RECV
          pingChannel.register(selector, SelectionKey.OP_READ, this)
       }
@@ -131,6 +115,9 @@ class BsdPingActor(private val selector : AbstractSelector,
 
       @JvmStatic
       val SIZEOF_STRUCT_TV32 = Struct.size(Tv32())
+
+      @JvmStatic
+      val ID_SEQUENCE = AtomicInteger()
    }
 }
 
@@ -253,9 +240,9 @@ class BsdDun : Union(runtime) {
    val id_data = Unsigned8()
 }
 
-/*
- * Structure of an icmp header.
- */
+// /*
+//  * Structure of an icmp header.
+//  */
 // struct icmp {
 class BsdIcmp : Icmp() {
    // u_char	icmp_type;		/* type of message, see below */
@@ -283,6 +270,35 @@ class Tv32 : Struct(runtime) {
    val tv32_sec = Unsigned32()
    val tv32_usec = Unsigned32()
 }
+
+// /*
+//  * [XSI] Message header for recvmsg and sendmsg calls.
+//  * Used value-result for recvmsg, value only for sendmsg.
+//  */
+// struct msghdr {
+class BsdMsghdr : Struct(runtime) {
+   // void		*msg_name;	/* [XSI] optional address */
+   // socklen_t	msg_namelen;	/* [XSI] size of address */
+   val msg_name = Pointer()
+   val msg_namelen = socklen_t()
+
+   // struct		iovec *msg_iov;	/* [XSI] scatter/gather array */
+   val iovec = Pointer()
+
+   // int		msg_iovlen;	/* [XSI] # elements in msg_iov */
+   val msg_iovlen = Signed32()
+
+   // void		*msg_control;	/* [XSI] ancillary data, see below */
+   val msg_control = Pointer()
+
+   // socklen_t	msg_controllen;	/* [XSI] ancillary data buffer len */
+   val msg_controllen = socklen_t()
+
+   // int		msg_flags;	/* [XSI] flags on received message */
+   val msg_flags = Signed32()
+}
+
+
 
 // See https://opensource.apple.com/source/network_cmds/network_cmds-329.2/ping.tproj/ping.c
 fun bsd_cksum(buf : ByteBuffer) : Int {

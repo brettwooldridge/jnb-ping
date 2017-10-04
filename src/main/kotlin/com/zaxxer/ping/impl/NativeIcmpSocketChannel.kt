@@ -20,6 +20,7 @@ import jnr.enxio.channels.NativeSocketChannel
 import jnr.ffi.Platform
 import jnr.ffi.Struct
 import jnr.ffi.annotations.Direct
+import jnr.ffi.byref.IntByReference
 import jnr.ffi.provider.ParameterFlags
 import java.net.Inet4Address
 import java.net.InetAddress
@@ -77,6 +78,12 @@ class NativeIcmpSocketChannel(private val inetAddress : InetAddress, fd : Int) :
          else {  // IPv6
             error("Not implemented")
          }
+
+         val on = IntByReference(1)
+         libc.setsockopt(fd, LibC.SOL_SOCKET, LibC.SO_TIMESTAMP, on, on.nativeSize(runtime))
+
+         val rcvbuf = IntByReference(2048)
+         libc.setsockopt(fd, LibC.SOL_SOCKET, LibC.SO_RCVBUF, rcvbuf, rcvbuf.nativeSize(runtime))
 
          return libc.sendto(fd, src, src.limit(), 0, sockAddr, Struct.size(sockAddr))
       }

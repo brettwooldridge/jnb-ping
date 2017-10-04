@@ -48,7 +48,7 @@ val libc = LibraryLoader.create(LibC::class.java).load(platform.standardCLibrary
 
 abstract class PingActor {
    companion object {
-      val sequence = AtomicInteger()
+      @Volatile var sequence = 0.toShort()
 
       public val STATE_XMIT = 0
       public val STATE_RECV = 1

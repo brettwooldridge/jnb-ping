@@ -100,6 +100,12 @@
       </dependency>
 
       <dependency>
+         <groupId>it.unimi.dsi</groupId>
+         <artifactId>fastutil</artifactId>
+         <version>8.1.0</version>
+      </dependency>
+
+      <dependency>
          <groupId>org.jetbrains.kotlin</groupId>
          <artifactId>kotlin-stdlib-jre8</artifactId>
          <version>${kotlin.version}</version>
