@@ -71,5 +71,7 @@ class PingTest {
       pinger.ping(InetAddress.getByName("8.8.8.8"), PingHandler())
 
       Thread.sleep(3000)
+
+      pinger.stopSelector()
    }
 }

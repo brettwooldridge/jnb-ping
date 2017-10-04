@@ -72,7 +72,7 @@ class BsdPingActor(private val selector : AbstractSelector,
       val icmp = BsdIcmp()
       icmp.useMemory(outpacketPointer)
 
-      icmp.icmp_type.set(IcmpPinger.ICMP_ECHO)
+      icmp.icmp_type.set(ICMP_ECHO)
       icmp.icmp_code.set(0)
       icmp.icmp_cksum.set(0)
       icmp.icmp_hun.ih_idseq.icd_seq.set(htons(sequence++))

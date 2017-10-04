@@ -20,11 +20,7 @@ package com.zaxxer.ping.impl
 
 import jnr.constants.platform.AddressFamily.AF_INET
 import jnr.constants.platform.AddressFamily.AF_INET6
-import jnr.ffi.LibraryLoader
-import jnr.ffi.NativeType
-import jnr.ffi.Platform
-import jnr.ffi.Pointer
-import jnr.ffi.Struct
+import jnr.ffi.*
 import jnr.ffi.annotations.In
 import jnr.ffi.annotations.Out
 import jnr.ffi.byref.IntByReference
@@ -33,7 +29,6 @@ import jnr.ffi.types.socklen_t
 import jnr.ffi.types.ssize_t
 import jnr.posix.POSIXFactory
 import java.nio.ByteBuffer
-import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Created by Brett Wooldridge on 2017/10/03.
@@ -130,6 +125,20 @@ class icmphdr : Struct(runtime) {
 
 open class Icmp : Struct(runtime)
 
+val PF_INET = AF_INET.intValue()
+val PF_INET6 = AF_INET6.intValue()
+val SOCK_DGRAM = jnr.constants.platform.Sock.SOCK_DGRAM.intValue()
+
+val IPPROTO_ICMP = 1
+val IPPROTO_ICMPV6 = 58
+
+val ICMP_ECHO = 8.toShort()
+val ICMP_ECHOREPLY = 0.toShort()
+
+val SOL_SOCKET = if (platform.isBSD) 0xffff else 1
+val SO_TIMESTAMP = if (platform.isBSD) 0x0400 else 29
+val SO_RCVBUF = if (platform.isBSD) 0x1002 else 8
+
 interface LibC {
    fun socket(domain : Int, type : Int, protocol : Int) : Int
 
@@ -159,16 +168,6 @@ interface LibC {
    fun write(fd : Int, @In data : ByteBuffer, @size_t len : Int) : Int
 
    fun strerror(error : Int) : String
-
-   companion object {
-      val PF_INET = AF_INET.intValue()
-      val PF_INET6 = AF_INET6.intValue()
-      val SOCK_DGRAM = jnr.constants.platform.Sock.SOCK_DGRAM.intValue()
-
-      val SOL_SOCKET = if (platform.isBSD) 0xffff else 1
-      val SO_TIMESTAMP = if (platform.isBSD) 0x0400 else 29
-      val SO_RCVBUF = if (platform.isBSD) 0x1002 else 8
-   }
 }
 
 

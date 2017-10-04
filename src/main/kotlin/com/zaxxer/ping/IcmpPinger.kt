@@ -16,11 +16,11 @@
 
 package com.zaxxer.ping
 
-import com.zaxxer.ping.impl.BsdPingActor
-import com.zaxxer.ping.impl.NativeIcmpSocketChannel
-import com.zaxxer.ping.impl.PingActor
+import com.zaxxer.ping.impl.*
 import jnr.enxio.channels.NativeSelectorProvider
+import jnr.ffi.byref.IntByReference
 import java.io.IOException
+import java.net.Inet4Address
 import java.net.InetAddress
 import java.nio.channels.SelectionKey
 import java.nio.channels.spi.AbstractSelector
@@ -31,6 +31,8 @@ import java.nio.channels.spi.AbstractSelector
 class IcmpPinger {
 
    private val selector : AbstractSelector
+   private val fd4 : Int
+   private val fd6 : Int
 
    interface PingResponseHandler {
       fun onResponse(rtt : Int)
@@ -48,6 +50,16 @@ class IcmpPinger {
          throw RuntimeException(e)
       }
 
+      fd4 = libc.socket(PF_INET, SOCK_DGRAM, IPPROTO_ICMP)
+      fd6 = libc.socket(PF_INET6, SOCK_DGRAM, IPPROTO_ICMPV6)
+
+      val on = IntByReference(1)
+      libc.setsockopt(fd4, SOL_SOCKET, SO_TIMESTAMP, on, on.nativeSize(runtime))
+      libc.setsockopt(fd6, SOL_SOCKET, SO_TIMESTAMP, on, on.nativeSize(runtime))
+
+      // Better handled by altering the OS default rcvbuf size
+      // val rcvbuf = IntByReference(2048)
+      // libc.setsockopt(fd, SOL_SOCKET, SO_RCVBUF, rcvbuf, rcvbuf.nativeSize(runtime))
    }
 
    fun startSelector() {
@@ -75,80 +87,20 @@ class IcmpPinger {
 
    }
 
-//   fun stopSelector() {
-//
-//   }
+   fun stopSelector() {
+      if (fd4 > 0) libc.close(fd4)
+      if (fd6 > 0) libc.close(fd6)
+   }
 
    /**
     * https://stackoverflow.com/questions/8290046/icmp-sockets-linux
     */
    @Throws(IOException::class)
    fun ping(addr : InetAddress, handler : PingResponseHandler) {
-      val pingChannel = NativeIcmpSocketChannel.create(addr)
+      val isIPv4 = (addr is Inet4Address)
+
+      val pingChannel = NativeIcmpSocketChannel(addr, if (isIPv4) fd4 else fd6)
       pingChannel.configureBlocking(false)
       pingChannel.register(selector, SelectionKey.OP_WRITE, BsdPingActor(selector, pingChannel, handler))
-   }
-
-//   private class XPingActor internal constructor(private val selector : AbstractSelector,
-//                                                private val pingChannel : NativeIcmpSocketChannel,
-//                                                private val handler : PingResponseHandler) {
-//
-//      internal fun sendIcmp() {
-//         try {
-//            val icmpHeader = if (Platform.getNativePlatform().isBSD) BsdIcmp() else BsdIcmp()
-//            val bufPointer = runtime.memoryManager.newPointer(buf)
-//            icmpHeader.useMemory(bufPointer)
-//
-//            icmpHeader.icmp_type.set(ICMP_ECHO)
-//            icmpHeader.icmp_hun.ih_idseq.icd_id.set(1234) // arbitrary id ... really?
-//            icmpHeader.icmp_hun.ih_idseq.icd_seq.set(htons(sequence.incrementAndGet().toShort()))
-//
-//            val icmpHdrSize = Struct.size(icmpHeader)
-//
-//            val datalen = "hello".length
-//
-//            val cc = ICMP_MINLEN + 0 /*phdr_len*/ + datalen;
-//            icmpHeader.icmp_cksum.set(bsd_cksum(buf, cc))
-//
-//            buf.limit(icmpHdrSize + datalen)
-//            buf.position(icmpHeader.icmp_dun.id_data.offset().toInt())
-//            buf.put("hello".toByteArray())
-//            buf.position(0)
-//
-//
-//            val bytes = ByteArray(256)
-//            buf.get(bytes, 0, icmpHdrSize + datalen)
-//            println(HexDumpElf.dump(0, bytes, 0, 127))
-//
-//            buf.flip()
-//
-//            val rc = pingChannel.write(buf)
-//            if (rc != 0) {
-//               println("Non-zero return code from sendto(): $rc")
-//            }
-//
-//            state = STATE_RECV
-//            pingChannel.register(selector, SelectionKey.OP_READ, this)
-//         }
-//         catch (e : Error) {
-//            handler.onError()
-//         }
-//
-//      }
-//
-//      internal fun recvIcmp() {
-//         try {
-//            pingChannel.read(buf)
-//            System.err.println(HexDumpElf.dump(0, buf.array(), buf.arrayOffset(), buf.limit()))
-//         }
-//         catch (e : IOException) {
-//            handler.onError()
-//         }
-//
-//      }
-//   }
-
-   companion object {
-      internal val ICMP_ECHO = 8.toShort() /* on both Linux and Mac OS X */
    }
 }
