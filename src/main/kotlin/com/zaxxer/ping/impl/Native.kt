@@ -24,10 +24,13 @@ import jnr.ffi.*
 import jnr.ffi.annotations.In
 import jnr.ffi.annotations.Out
 import jnr.ffi.byref.IntByReference
+import jnr.ffi.provider.ParameterFlags
 import jnr.ffi.types.size_t
 import jnr.ffi.types.socklen_t
 import jnr.ffi.types.ssize_t
 import jnr.posix.POSIXFactory
+import java.net.Inet4Address
+import java.net.InetAddress
 import java.nio.ByteBuffer
 
 /**
@@ -38,26 +41,54 @@ const val ICMP_MINLEN = 8
 
 val runtime = jnr.ffi.Runtime.getSystemRuntime()
 val platform = Platform.getNativePlatform()
+val isBSD = platform.isBSD
 val posix = POSIXFactory.getNativePOSIX()
 val libc = LibraryLoader.create(LibC::class.java).load(platform.standardCLibraryName)
 
-abstract class PingActor {
-   companion object {
-      @Volatile var sequence = 0.toShort()
+class PingTarget(inetAddress : InetAddress) {
 
-      public val STATE_XMIT = 0
-      public val STATE_RECV = 1
+   val sockAddr : SockAddr
+
+   init {
+      if (inetAddress is Inet4Address) {
+         // val inAddr : Long = (bytes[3].toLong() shl 24) or (bytes[2].toLong() shl 16) or (bytes[1].toLong() shl 8) or bytes[0].toLong()
+         // val inAddr : Long = (bytes[2].toLong() shl 24) or (bytes[3].toLong() shl 16) or (bytes[0].toLong() shl 8) or bytes[1].toLong()
+
+         if (isBSD) {
+            sockAddr = BSDSockAddr4()
+            val memory = Struct.getMemory(sockAddr, ParameterFlags.DIRECT)
+            sockAddr.useMemory(memory)
+
+            sockAddr.sin_family.set(PF_INET.toShort())
+            val rc = libc.inet_pton(PF_INET, inetAddress.hostAddress, memory.slice(sockAddr.sin_addr.offset()))
+            if (rc != 1) {
+               println("Error return code from inet_pton(), should be 1 but is $rc")
+            }
+         }
+         else {
+            sockAddr = LinuxSockAddr4()
+//            sockAddr.sin_addr.set(inAddr)
+         }
+      }
+      else {  // IPv6
+         error("Not implemented")
+      }
    }
 
-   @Volatile internal var state = STATE_XMIT
-      internal set
-
-   abstract fun sendIcmp()
-
-   abstract fun recvIcmp()
+   fun foo() : Any? {
+      return when (sockAddr) {
+         is BSDSockAddr4 -> sockAddr.sin_addr
+         is LinuxSockAddr4 -> sockAddr.sin_addr
+         is BSDSockAddr6 -> sockAddr.sin_addr
+         is LinuxSockAddr6 -> sockAddr.sin_addr
+         else         -> error("Unknown socket type")
+      }
+   }
 }
 
+
 open class SockAddr : Struct(runtime)
+open class SockAddr6 : SockAddr()
 
 class BSDSockAddr4 : SockAddr() {
    @field:JvmField val sin_len = Unsigned8()
@@ -65,25 +96,37 @@ class BSDSockAddr4 : SockAddr() {
    @field:JvmField val sin_port = Unsigned16()
    @field:JvmField val sin_addr = Unsigned32()
    @field:JvmField protected val sin_zero = Padding(NativeType.SCHAR, 8)
+
+   init {
+      sin_family.set(PF_INET)
+   }
 }
 
-class BSDSockAddr6 : SockAddr() {
+class BSDSockAddr6 : SockAddr6() {
    @field:JvmField val sin_len = Unsigned8()
    @field:JvmField val sin_family = Unsigned8()
    @field:JvmField val sin_port = Unsigned16()
    @field:JvmField val flowinfo = Unsigned32()
    @field:JvmField val sin_addr = array(Array<Unsigned8>(4, {Unsigned8()}))
    @field:JvmField val sin_scope_id = Unsigned32()
+
+   init {
+      sin_family.set(PF_INET6)
+   }
 }
 
-class SockAddr4 : SockAddr() {
+class LinuxSockAddr4 : SockAddr() {
    @field:JvmField val sin_family = Unsigned16()
    @field:JvmField val sin_port = Unsigned16()
    @field:JvmField val sin_addr = Unsigned32()
    @field:JvmField protected val sin_zero = Padding(NativeType.SCHAR, 8)
+
+   init {
+      sin_family.set(PF_INET)
+   }
 }
 
-class SockAddr6 : SockAddr() {
+class LinuxSockAddr6 : SockAddr6() {
    @field:JvmField val sin_family = Unsigned16()
    @field:JvmField val sin_port = Unsigned16()
    @field:JvmField val flowinfo = Unsigned32()
@@ -91,39 +134,6 @@ class SockAddr6 : SockAddr() {
    @field:JvmField val sin_scope_id = Unsigned32()
 }
 
-/** Linux: netinetip_icmp.h
-class echo_struct(enclosing : Struct) : Struct(runtime, enclosing) {
-   val id = Unsigned16()
-   val seq = Unsigned16()
-}
-
-class frag_struct(enclosing : Struct) : Struct(runtime, enclosing) {
-   val unused = Unsigned16()
-   val mtu = Unsigned16()
-}
-
-class icmp_union(enclosing : Struct) : Union(runtime) {
-   val echo : echo_struct
-   val frag : frag_struct
-
-   init {
-      this.echo = inner(echo_struct(enclosing))
-      this.frag = inner(frag_struct(enclosing))
-   }
-}
-
-class icmphdr : Struct(runtime) {
-   val type = Unsigned8()      /* message type */
-   val code = Unsigned8()      /* type sub-code */
-   val checksum = Unsigned16()
-   val un : icmp_union
-
-   init {
-      this.un = icmp_union(this)
-   }
-} */
-
-open class Icmp : Struct(runtime)
 
 val PF_INET = AF_INET.intValue()
 val PF_INET6 = AF_INET6.intValue()
@@ -135,9 +145,11 @@ val IPPROTO_ICMPV6 = 58
 val ICMP_ECHO = 8.toShort()
 val ICMP_ECHOREPLY = 0.toShort()
 
-val SOL_SOCKET = if (platform.isBSD) 0xffff else 1
-val SO_TIMESTAMP = if (platform.isBSD) 0x0400 else 29
-val SO_RCVBUF = if (platform.isBSD) 0x1002 else 8
+val SOL_SOCKET = if (isBSD) 0xffff else 1
+val SO_TIMESTAMP = if (isBSD) 0x0400 else 29
+val SO_RCVBUF = if (isBSD) 0x1002 else 8
+
+val SCM_TIMESTAMP = if (isBSD) 0x02 else SO_TIMESTAMP
 
 interface LibC {
    fun socket(domain : Int, type : Int, protocol : Int) : Int
@@ -170,10 +182,9 @@ interface LibC {
    fun strerror(error : Int) : String
 }
 
+fun htons(s : Short) = java.lang.Short.reverseBytes(s)
 
-fun htons(bytes : Short) : Short {
-   return java.lang.Short.reverseBytes(bytes)
-}
+fun ntohs(s : Short) = java.lang.Short.reverseBytes(s)
 
 fun htonl(value : Long) : Long {
    return ((value and 0xff000000) shr 24) or

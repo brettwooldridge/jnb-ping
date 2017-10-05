@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.zaxxer.ping
+package com.zaxxer.ping.impl.util
 
 import java.util.Formatter
 

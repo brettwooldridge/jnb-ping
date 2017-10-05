@@ -16,12 +16,23 @@
 
 package com.zaxxer.ping
 
-import com.zaxxer.ping.impl.*
+import com.zaxxer.ping.impl.IPPROTO_ICMP
+import com.zaxxer.ping.impl.IPPROTO_ICMPV6
+import com.zaxxer.ping.impl.NativeIcmpSocketChannel
+import com.zaxxer.ping.impl.PF_INET
+import com.zaxxer.ping.impl.PF_INET6
+import com.zaxxer.ping.impl.PingActor
+import com.zaxxer.ping.impl.PingTarget
+import com.zaxxer.ping.impl.SOCK_DGRAM
+import com.zaxxer.ping.impl.SOL_SOCKET
+import com.zaxxer.ping.impl.SO_TIMESTAMP
+import com.zaxxer.ping.impl.SockAddr6
+import com.zaxxer.ping.impl.libc
+import com.zaxxer.ping.impl.runtime
 import jnr.enxio.channels.NativeSelectorProvider
 import jnr.ffi.byref.IntByReference
 import java.io.IOException
-import java.net.Inet4Address
-import java.net.InetAddress
+import java.net.SocketOptions.SO_REUSEADDR
 import java.nio.channels.SelectionKey
 import java.nio.channels.spi.AbstractSelector
 
@@ -35,11 +46,11 @@ class IcmpPinger {
    private val fd6 : Int
 
    interface PingResponseHandler {
-      fun onResponse(rtt : Int)
+      fun onResponse(rtt : Double, bytes : Int, seq : Int)
 
       fun onTimeout()
 
-      fun onError()
+      fun onError(message : String)
    }
 
    init {
@@ -56,6 +67,10 @@ class IcmpPinger {
       val on = IntByReference(1)
       libc.setsockopt(fd4, SOL_SOCKET, SO_TIMESTAMP, on, on.nativeSize(runtime))
       libc.setsockopt(fd6, SOL_SOCKET, SO_TIMESTAMP, on, on.nativeSize(runtime))
+      libc.setsockopt(fd4, SOL_SOCKET, 0x0200, on, on.nativeSize(runtime))
+
+      val lowRcvWaterMark = IntByReference(84)
+      libc.setsockopt(fd4, SOL_SOCKET, 0x1004, lowRcvWaterMark, lowRcvWaterMark.nativeSize(runtime))
 
       // Better handled by altering the OS default rcvbuf size
       // val rcvbuf = IntByReference(2048)
@@ -73,7 +88,7 @@ class IcmpPinger {
                if (pingActor.state == PingActor.STATE_XMIT) {
                   pingActor.sendIcmp()
                }
-               else {
+               else if (pingActor.state == PingActor.STATE_RECV) {
                   pingActor.recvIcmp()
                }
 
@@ -96,11 +111,11 @@ class IcmpPinger {
     * https://stackoverflow.com/questions/8290046/icmp-sockets-linux
     */
    @Throws(IOException::class)
-   fun ping(addr : InetAddress, handler : PingResponseHandler) {
-      val isIPv4 = (addr is Inet4Address)
+   fun ping(pingTarget : PingTarget, handler : PingResponseHandler) {
+      val isIPv6 = (pingTarget.sockAddr is SockAddr6)
 
-      val pingChannel = NativeIcmpSocketChannel(addr, if (isIPv4) fd4 else fd6)
+      val pingChannel = NativeIcmpSocketChannel(pingTarget, if (isIPv6) fd6 else fd4)
       pingChannel.configureBlocking(false)
-      pingChannel.register(selector, SelectionKey.OP_WRITE, BsdPingActor(selector, pingChannel, handler))
+      pingChannel.register(selector, SelectionKey.OP_WRITE, PingActor(selector, pingChannel, handler))
    }
 }

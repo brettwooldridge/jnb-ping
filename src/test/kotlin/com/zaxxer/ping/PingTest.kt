@@ -1,17 +1,17 @@
 package com.zaxxer.ping
 
-import com.zaxxer.ping.impl.BsdIcmp
-import com.zaxxer.ping.impl.BsdIp
+import com.zaxxer.ping.impl.Icmp
+import com.zaxxer.ping.impl.Ip
+import com.zaxxer.ping.impl.PingTarget
 import com.zaxxer.ping.impl.Tv32
-import com.zaxxer.ping.impl.bsd_cksum
+import com.zaxxer.ping.impl.icmp_cksum
 import jnr.ffi.Struct
-import jnr.ffi.StructLayout
-import org.junit.Assert
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.io.IOException
 import java.net.InetAddress
 import java.nio.ByteBuffer
+import java.util.concurrent.Semaphore
 
 class PingTest {
 
@@ -23,44 +23,48 @@ class PingTest {
          buffer.put(i.toByte())
 
       buffer.flip()
-      assertEquals(64539, bsd_cksum(buffer))
+      assertEquals(64539, icmp_cksum(buffer))
 
       buffer.clear()
       for (i in 0..63)
          buffer.put((255 - i).toByte())
 
       buffer.flip()
-      assertEquals(996, bsd_cksum(buffer))
+      assertEquals(996, icmp_cksum(buffer))
    }
 
    @Test
    fun testSizesAndAlignments() {
-      assertEquals(20, Struct.size(BsdIp()))
-      assertEquals(28, Struct.size(BsdIcmp()))
-      assertEquals(2, BsdIcmp().icmp_cksum.offset())
-      assertEquals(4, BsdIcmp().icmp_hun.ih_idseq.icd_id.offset())
-      assertEquals(6, BsdIcmp().icmp_hun.ih_idseq.icd_seq.offset())
-      assertEquals(8, BsdIcmp().icmp_dun.id_data.offset())
+      assertEquals(20, Struct.size(Ip()))
+      assertEquals(28, Struct.size(Icmp()))
+      assertEquals(2, Icmp().icmp_cksum.offset())
+      assertEquals(4, Icmp().icmp_hun.ih_idseq.icd_id.offset())
+      assertEquals(6, Icmp().icmp_hun.ih_idseq.icd_seq.offset())
+      assertEquals(8, Icmp().icmp_dun.id_data.offset())
       assertEquals(8, Struct.size(Tv32()))
-      println("Checksum offset: " + BsdIcmp().icmp_cksum.offset())
+      println("Checksum offset: " + Icmp().icmp_cksum.offset())
    }
 
    @Test
    @Throws(IOException::class)
    fun pingTest1() {
       val pinger = IcmpPinger()
+      val semaphore = Semaphore(1)
 
       class PingHandler : IcmpPinger.PingResponseHandler {
-         override fun onResponse(rtt : Int) {
-            System.err.println("Response rtt: " + rtt)
+         private var count : Int = 0
+
+         override fun onResponse(rtt : Double, bytes : Int, seq : Int) {
+            println("$bytes bytes from 172.16.0.4: icmp_seq=$seq time=$rtt")
+            semaphore.release()
          }
 
          override fun onTimeout() {
-            System.err.println("Timeout")
+            println("Timeout")
          }
 
-         override fun onError() {
-            System.err.println("Error")
+         override fun onError(message : String) {
+            println("Error: $message")
          }
       }
 
@@ -68,7 +72,14 @@ class PingTest {
       selectorThread.isDaemon = false
       selectorThread.start()
 
-      pinger.ping(InetAddress.getByName("8.8.8.8"), PingHandler())
+      val inetAddress = InetAddress.getByName("172.16.0.4")
+      val pingTarget = PingTarget(inetAddress)
+      val pingHandler = PingHandler()
+
+      for (i in 0..10000) {
+         semaphore.acquire()
+         pinger.ping(pingTarget, pingHandler)
+      }
 
       Thread.sleep(3000)
 
