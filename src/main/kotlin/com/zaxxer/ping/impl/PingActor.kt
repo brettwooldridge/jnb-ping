@@ -20,14 +20,11 @@ package com.zaxxer.ping.impl
 
 import com.zaxxer.ping.IcmpPinger
 import com.zaxxer.ping.impl.util.HexDumpElf
-import jnr.constants.platform.Errno
 import jnr.ffi.Struct
 import jnr.ffi.Union
 import java.nio.ByteBuffer
-import java.nio.channels.SelectionKey
 import java.nio.channels.spi.AbstractSelector
 import java.time.Instant
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 const val IP_MAXPACKET = 65535
@@ -37,13 +34,14 @@ const val DEFAULT_DATALEN = 56
  * Created by Brett Wooldridge on 2017/10/04.
  */
 @Suppress("UNUSED_PARAMETER")
-class PingActor(private val selector : AbstractSelector,
-                private val pingChannel : NativeIcmpSocketChannel,
-                private val handler : IcmpPinger.PingResponseHandler) {
+internal class PingActor(private val selector : AbstractSelector,
+                         private val fd : Int,
+                         private val sockAddr : SockAddr,
+                         val handler : IcmpPinger.PingResponseHandler) {
 
-   private val id = (ID_SEQUENCE.getAndIncrement() % 0xffff).toShort()
+   val id = (ID_SEQUENCE.getAndIncrement() % 0xffff).toShort()
    private val buf = ByteBuffer.allocateDirect(128)
-   private var sendTimestamp : Long = 0
+   var sendTimestamp : Long = 0
 
    internal var state = STATE_XMIT
 
@@ -96,82 +94,19 @@ class PingActor(private val selector : AbstractSelector,
       outpackBuffer.limit(ICMP_MINLEN + DEFAULT_DATALEN)
 
       val cksumBuffer = outpackBuffer.slice()
-      val cksum = icmp_cksum(cksumBuffer)
+      val cksum = icmpCksum(cksumBuffer)
       icmp.icmp_cksum.set(htons(cksum.toShort()))
 
 //      dumpBuffer(message = "Final buffer", buffer = outpackBuffer)
 
       sendTimestamp = System.nanoTime()
 
-      val rc = pingChannel.write(outpackBuffer)
+      val rc = libc.sendto(fd, outpackBuffer, outpackBuffer.remaining(), 0, sockAddr, Struct.size(sockAddr))
       if (rc == outpackBuffer.remaining()) {
-         state = STATE_RECV
-         pingChannel.register(selector, SelectionKey.OP_READ, this)
+         // ok
       }
       else {
          error("sendto() returned $rc")
-      }
-   }
-
-   fun recvIcmp() {
-      // val packetBuffer = buf.slice()
-      val packetBuffer = ByteBuffer.allocateDirect(128)
-
-      val msgHdr = posix.allocateMsgHdr()
-      msgHdr.iov = arrayOf(packetBuffer)
-      @Suppress("UNUSED_VARIABLE")
-      val cmsgHdr = msgHdr.allocateControl(SIZEOF_STRUCT_TIMEVAL)
-
-      var cc = pingChannel.read(msgHdr)
-      if (cc > 0) {
-         val usElapsed = TimeUnit.NANOSECONDS.toMicros(System.nanoTime() - sendTimestamp)
-
-         packetBuffer.limit(cc)
-//         dumpBuffer("Ping response", packetBuffer)
-
-         val packetPointer = runtime.memoryManager.newPointer(packetBuffer)
-         val ip = Ip()
-         ip.useMemory(packetPointer)
-         val headerLen = (ip.ip_vhl.get().toInt() and 0x0f shl 2)
-         cc -= headerLen
-
-         val icmp = Icmp()
-         icmp.useMemory(packetPointer.slice(headerLen.toLong()))
-         if (!(icmp.icmp_type.get() == ICMP_ECHOREPLY && ntohs(icmp.icmp_hun.ih_idseq.icd_id.get().toShort()) == id)) {
-            return // 'Twas not our ECHO
-         }
-
-//         var triptime : Double = 0.0
-//         if (cc - ICMP_MINLEN >= SIZEOF_STRUCT_TIMEVAL) {
-//            val tp = packetPointer.slice(headerLen.toLong() + icmp.icmp_dun.id_data.offset())
-//            val tv1 = posix.allocateTimeval()
-//            val tv1Pointer = runtime.memoryManager.newPointer(buf)
-//            tv1.useMemory(tv1Pointer)
-//            tp.transferTo(0, tv1Pointer, 0, SIZEOF_STRUCT_TV32.toLong())
-//
-//            val usec = tv32.tv32_usec.get() - tv1.usec()
-//            if (usec < 0) {
-//               tv32.tv32_sec.set(tv32.tv32_sec.get() - 1)
-//               tv32.tv32_usec.set(usec + 1000000)
-//            }
-//            tv32.tv32_sec.set(tv32.tv32_sec.get() - tv1.sec())
-//
-//            triptime = (tv32.tv32_sec.get().toDouble()) * 1000.0 + (tv32.tv32_usec.get().toDouble()) / 1000.0
-//         }
-
-         val triptime = (usElapsed.toDouble() / 1000.0)
-
-         val seq = ntohs(icmp.icmp_hun.ih_idseq.icd_seq.shortValue())
-         handler.onResponse(triptime, cc, seq.toInt())
-      }
-      else {
-         val errno = posix.errno()
-         if (posix.errno() != Errno.EINTR.intValue()) {
-            handler.onError("Error code $errno returned from pingChannel.read()")
-         }
-//         else {
-//            pingChannel.register(selector, SelectionKey.OP_READ, this)
-//         }
       }
    }
 
@@ -299,7 +234,7 @@ class Dun : Union(runtime) {
 class Icmp : Struct(runtime) {
    // u_char	icmp_type;		/* type of message, see below */
    // u_char	icmp_code;		/* type sub code */
-   // u_short	icmp_cksum;		/* ones complement cksum of struct */
+   // u_short	icmpCksum;		/* ones complement cksum of struct */
    val icmp_type = Unsigned8()
    val icmp_code = Unsigned8()
    val icmp_cksum = Unsigned16()
@@ -322,7 +257,7 @@ class Tv32 : Struct(runtime) {
 }
 
 // See https://opensource.apple.com/source/network_cmds/network_cmds-329.2/ping.tproj/ping.c
-fun icmp_cksum(buf : ByteBuffer) : Int {
+fun icmpCksum(buf : ByteBuffer) : Int {
    var sum = 0
 
    buf.mark()

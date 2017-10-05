@@ -4,7 +4,7 @@ import com.zaxxer.ping.impl.Icmp
 import com.zaxxer.ping.impl.Ip
 import com.zaxxer.ping.impl.PingTarget
 import com.zaxxer.ping.impl.Tv32
-import com.zaxxer.ping.impl.icmp_cksum
+import com.zaxxer.ping.impl.icmpCksum
 import jnr.ffi.Struct
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -23,14 +23,14 @@ class PingTest {
          buffer.put(i.toByte())
 
       buffer.flip()
-      assertEquals(64539, icmp_cksum(buffer))
+      assertEquals(64539, icmpCksum(buffer))
 
       buffer.clear()
       for (i in 0..63)
          buffer.put((255 - i).toByte())
 
       buffer.flip()
-      assertEquals(996, icmp_cksum(buffer))
+      assertEquals(996, icmpCksum(buffer))
    }
 
    @Test

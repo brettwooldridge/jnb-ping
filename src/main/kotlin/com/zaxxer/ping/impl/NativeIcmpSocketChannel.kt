@@ -17,32 +17,27 @@
 package com.zaxxer.ping.impl
 
 import jnr.enxio.channels.NativeSocketChannel
-import jnr.ffi.Struct
-import jnr.posix.MsgHdr
 import java.nio.ByteBuffer
 
 /**
  * Created by Brett Wooldridge on 2017/10/03.
  */
 @Suppress("unused")
-class NativeIcmpSocketChannel(internal val pingTarget : PingTarget, fd : Int) : NativeSocketChannel(fd) {
+class NativeIcmpSocketChannel(fd : Int) : NativeSocketChannel(fd) {
 
    override fun write(src : ByteBuffer) : Int {
       try {
          begin()
 
-         return libc.sendto(fd, src, src.limit(), 0, pingTarget.sockAddr, Struct.size(pingTarget.sockAddr))
+         // return libc.sendto(fd, src, src.limit(), 0, pingTarget.sockAddr, Struct.size(pingTarget.sockAddr))
+         error("write(ByteBuffer) should not be called")
       }
       finally {
          end(true)
       }
    }
 
-   fun read(msgHdr : MsgHdr) : Int {
-      return posix.recvmsg(fd, msgHdr, 0)
-   }
-
    override fun read(dst : ByteBuffer?) : Int {
-      error("read(ByteBuffer) should not be called, only read(MsgHdr) is supported")
+      error("read(ByteBuffer) should not be called")
    }
 }
