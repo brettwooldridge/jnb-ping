@@ -14,83 +14,45 @@
  * limitations under the License.
  */
 
-@file:Suppress("PropertyName", "unused")
+/**
+ * Created by Brett Wooldridge on 2017/10/03.
+ */
+
+@file:Suppress("PropertyName", "unused", "ProtectedInFinal", "FunctionName")
 
 package com.zaxxer.ping.impl
 
 import jnr.constants.platform.AddressFamily.AF_INET
 import jnr.constants.platform.AddressFamily.AF_INET6
-import jnr.ffi.*
+import jnr.ffi.LibraryLoader
+import jnr.ffi.NativeType
+import jnr.ffi.Platform
+import jnr.ffi.Pointer
+import jnr.ffi.Struct
+import jnr.ffi.Union
 import jnr.ffi.annotations.In
 import jnr.ffi.annotations.Out
 import jnr.ffi.byref.IntByReference
-import jnr.ffi.provider.ParameterFlags
 import jnr.ffi.types.size_t
 import jnr.ffi.types.socklen_t
 import jnr.ffi.types.ssize_t
+import jnr.posix.POSIX
 import jnr.posix.POSIXFactory
 import java.net.Inet4Address
-import java.net.InetAddress
 import java.nio.ByteBuffer
-
-/**
- * Created by Brett Wooldridge on 2017/10/03.
- */
 
 const val ICMP_MINLEN = 8
 
-val runtime = jnr.ffi.Runtime.getSystemRuntime()
-val platform = Platform.getNativePlatform()
+val runtime : jnr.ffi.Runtime = jnr.ffi.Runtime.getSystemRuntime()!!
+val platform : Platform = Platform.getNativePlatform()
 val isBSD = platform.isBSD
-val posix = POSIXFactory.getNativePOSIX()
-val libc = LibraryLoader.create(LibC::class.java).load(platform.standardCLibraryName)
-
-class PingTarget(inetAddress : InetAddress) {
-
-   val sockAddr : SockAddr
-
-   init {
-      if (inetAddress is Inet4Address) {
-         // val inAddr : Long = (bytes[3].toLong() shl 24) or (bytes[2].toLong() shl 16) or (bytes[1].toLong() shl 8) or bytes[0].toLong()
-         // val inAddr : Long = (bytes[2].toLong() shl 24) or (bytes[3].toLong() shl 16) or (bytes[0].toLong() shl 8) or bytes[1].toLong()
-
-         if (isBSD) {
-            sockAddr = BSDSockAddr4()
-            val memory = Struct.getMemory(sockAddr, ParameterFlags.DIRECT)
-            sockAddr.useMemory(memory)
-
-            sockAddr.sin_family.set(PF_INET.toShort())
-            val rc = libc.inet_pton(PF_INET, inetAddress.hostAddress, memory.slice(sockAddr.sin_addr.offset()))
-            if (rc != 1) {
-               println("Error return code from inet_pton(), should be 1 but is $rc")
-            }
-         }
-         else {
-            sockAddr = LinuxSockAddr4()
-//            sockAddr.sin_addr.set(inAddr)
-         }
-      }
-      else {  // IPv6
-         error("Not implemented")
-      }
-   }
-
-   fun foo() : Any? {
-      return when (sockAddr) {
-         is BSDSockAddr4 -> sockAddr.sin_addr
-         is LinuxSockAddr4 -> sockAddr.sin_addr
-         is BSDSockAddr6 -> sockAddr.sin_addr
-         is LinuxSockAddr6 -> sockAddr.sin_addr
-         else         -> error("Unknown socket type")
-      }
-   }
-}
-
+val posix : POSIX = POSIXFactory.getNativePOSIX()
+val libc : LibC = LibraryLoader.create(LibC::class.java).load(platform.standardCLibraryName)
 
 open class SockAddr : Struct(runtime)
 open class SockAddr6 : SockAddr()
 
-class BSDSockAddr4 : SockAddr() {
+class BSDSockAddr4(address : Inet4Address) : SockAddr() {
    @field:JvmField val sin_len = Unsigned8()
    @field:JvmField val sin_family = Unsigned8()
    @field:JvmField val sin_port = Unsigned16()
@@ -98,6 +60,9 @@ class BSDSockAddr4 : SockAddr() {
    @field:JvmField protected val sin_zero = Padding(NativeType.SCHAR, 8)
 
    init {
+      val bytes = address.address
+      val inAddr : Int = (bytes[3].toInt() and 0xff shl 24) or (bytes[2].toInt() and 0xff shl 16) or (bytes[1].toInt() and 0xff shl 8) or (bytes[0].toInt() and 0xff)
+      sin_addr.set(inAddr)
       sin_family.set(PF_INET)
    }
 }
@@ -107,7 +72,7 @@ class BSDSockAddr6 : SockAddr6() {
    @field:JvmField val sin_family = Unsigned8()
    @field:JvmField val sin_port = Unsigned16()
    @field:JvmField val flowinfo = Unsigned32()
-   @field:JvmField val sin_addr = array(Array<Unsigned8>(4, {Unsigned8()}))
+   @field:JvmField val sin_addr : Array<out Unsigned8> = array(Array(4, {Unsigned8()}))
    @field:JvmField val sin_scope_id = Unsigned32()
 
    init {
@@ -130,7 +95,7 @@ class LinuxSockAddr6 : SockAddr6() {
    @field:JvmField val sin_family = Unsigned16()
    @field:JvmField val sin_port = Unsigned16()
    @field:JvmField val flowinfo = Unsigned32()
-   @field:JvmField val sin_addr = array(Array<Unsigned8>(16, {Unsigned8()}))
+   @field:JvmField val sin_addr : Array<out Unsigned8> = array(Array(16, {Unsigned8()}))
    @field:JvmField val sin_scope_id = Unsigned32()
 }
 
@@ -191,4 +156,168 @@ fun htonl(value : Long) : Long {
           ((value and 0x00ff0000) shr 8) or
           ((value and 0x0000ff00) shl 8) or
           ((value and 0x000000ff) shl 24)
+}
+
+/*****************************************************************************
+ *                              ICMP Definitions
+ */
+
+
+
+// /*
+//  * Structure of an internet header, naked of options.
+//  */
+// struct ip {
+class Ip : Struct(runtime) {
+   // u_char	ip_vhl;			/* version << 4 | header length >> 2 */
+   val ip_vhl = Unsigned8()
+   // u_char	ip_tos;			/* type of service */
+   // u_short	ip_len;			/* total length */
+   // u_short	ip_id;			/* identification */
+   // u_short	ip_off;			/* fragment offset field */
+   val ip_tos = Unsigned8()
+   val ip_len = Unsigned16()
+   val ip_id = Unsigned16()
+   val ip_off = Unsigned16()
+   // u_char	ip_ttl;			/* time to live */
+   // u_char	ip_p;			/* protocol */
+   // u_short	ip_sum;			/* checksum */
+   val ip_ttl = Unsigned8()
+   val ip_p = Unsigned8()
+   val ip_sum = Unsigned16()
+   // struct in_addr  ip_src, ip_dst; /* source and dest address */
+   val ip_src = Unsigned32()
+   val ip_dst = Unsigned32()
+}
+
+// union {
+class Hun : Union(runtime) {
+   // u_char ih_pptr;			   /* ICMP_PARAMPROB */
+   // struct in_addr ih_gwaddr;	/* ICMP_REDIRECT */
+   val ih_pptr = Unsigned8()
+   val ih_gwaddr = Unsigned32()
+   // struct ih_idseq {
+   //    n_short	icd_id;
+   //    n_short	icd_seq;
+   // } ih_idseq;
+   class IdSeq : Struct(runtime) {
+      val icd_id = Unsigned16()
+      val icd_seq = Unsigned16()
+   }
+   val ih_idseq : IdSeq = inner(IdSeq())
+   // int ih_void;
+   val ih_void = Unsigned32()
+   // /* ICMP_UNREACH_NEEDFRAG -- Path MTU Discovery (RFC1191) */
+   // struct ih_pmtu {
+   //    n_short ipm_void;
+   //    n_short ipm_nextmtu;
+   // } ih_pmtu;
+   class Pmtu : Struct(runtime) {
+      val ipm_void = Unsigned16()
+      val ipm_nextmtu = Unsigned16()
+   }
+   val ih_pmtu : Pmtu = inner(Pmtu())
+   // struct ih_rtradv {
+   //    u_char irt_num_addrs;
+   //    u_char irt_wpa;
+   //    u_int16_t irt_lifetime;
+   // } ih_rtradv;
+   class Rtradv : Struct(runtime) {
+      val irt_num_addrs = Unsigned8()
+      val irt_wpa = Unsigned8()
+      val irt_lifetime = Unsigned16()
+   }
+   val ih_rtradv : Rtradv = inner(Rtradv())
+}
+
+// union {
+class Dun : Union(runtime) {
+   // struct id_ts {
+   //    n_time its_otime;
+   //    n_time its_rtime;
+   //    n_time its_ttime;
+   // } id_ts;
+   class IdTs : Struct(runtime) {
+      var its_otime = Unsigned32()
+      var its_rtime = Unsigned32()
+      var its_ttime = Unsigned32()
+   }
+   val id_ts : IdTs = inner(IdTs())
+   // struct id_ip  {
+   //    struct ip idi_ip;
+   //    /* options and then 64 bits of data */
+   // } id_ip;
+   class IdIp : Struct(runtime) {
+      val idi_ip : Ip = inner(Ip())
+   }
+   val id_ip : IdIp = inner(IdIp())
+   // struct icmp_ra_addr id_radv;
+   val id_radv : RaAddr = inner(RaAddr())
+   // /*
+   //  * Internal of an ICMP Router Advertisement
+   //  */
+   // struct icmp_ra_addr {
+   //    u_int32_t ira_addr;
+   //    u_int32_t ira_preference;
+   // };
+   class RaAddr : Struct(runtime) {
+      val ira_addr = Unsigned32()
+      val ira_preference = Unsigned32()
+   }
+   // u_int32_t id_mask;
+   val id_mask = Unsigned32()
+   // char id_data[1];
+   val id_data = Unsigned8()
+}
+
+// /*
+//  * Structure of an icmp header.
+//  */
+// struct icmp {
+class Icmp : Struct(runtime) {
+   // u_char	icmp_type;		/* type of message, see below */
+   // u_char	icmp_code;		/* type sub code */
+   // u_short	icmpCksum;		/* ones complement cksum of struct */
+   val icmp_type = Unsigned8()
+   val icmp_code = Unsigned8()
+   val icmp_cksum = Unsigned16()
+   // union {
+   val icmp_hun : Hun = inner(Hun())
+   // } icmp_hun;
+   // union {
+   val icmp_dun : Dun = inner(Dun())
+   // } icmp_dun
+}
+
+
+// struct tv32 {
+//     u_int32_t tv32_sec;
+//     u_int32_t tv32_usec;
+// };
+class Tv32 : Struct(runtime) {
+   val tv32_sec = Unsigned32()
+   val tv32_usec = Unsigned32()
+}
+
+// See https://opensource.apple.com/source/network_cmds/network_cmds-329.2/ping.tproj/ping.c
+fun icmpCksum(buf : ByteBuffer) : Int {
+   var sum = 0
+
+   buf.mark()
+   var nleft = buf.remaining()
+
+   while (nleft > 1) {
+      sum += ((buf.get().toInt() and 0xff) or ((buf.get().toInt() and 0xff) shl 8))  // read 16-bit unsigned
+      nleft -= 2
+   }
+
+   if (nleft == 1) {
+      sum += buf.get().toShort()
+   }
+
+   buf.reset()
+
+   sum = (sum shr 16) + (sum and 0xffff)
+   sum += (sum shr 16)
+   return (sum.inv() and 0xffff)
 }

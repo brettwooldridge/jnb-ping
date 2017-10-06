@@ -2,7 +2,6 @@ package com.zaxxer.ping
 
 import com.zaxxer.ping.impl.Icmp
 import com.zaxxer.ping.impl.Ip
-import com.zaxxer.ping.impl.PingTarget
 import com.zaxxer.ping.impl.Tv32
 import com.zaxxer.ping.impl.icmpCksum
 import jnr.ffi.Struct
@@ -12,6 +11,7 @@ import java.io.IOException
 import java.net.InetAddress
 import java.nio.ByteBuffer
 import java.util.concurrent.Semaphore
+import java.util.concurrent.TimeUnit
 
 class PingTest {
 
@@ -49,40 +49,47 @@ class PingTest {
    @Throws(IOException::class)
    fun pingTest1() {
       val pinger = IcmpPinger()
-      val semaphore = Semaphore(1)
+      val semaphore = Semaphore(2)
 
-      class PingHandler : IcmpPinger.PingResponseHandler {
-         private var count : Int = 0
+      class PingHandler : PingResponseHandler {
+         override fun onResponse(pingTarget : PingTarget, rtt : Double, bytes : Int, seq : Int) {
+            println("$bytes bytes from $pingTarget: icmp_seq=$seq time=$rtt")
 
-         override fun onResponse(rtt : Double, bytes : Int, seq : Int) {
-            println("$bytes bytes from 172.16.0.4: icmp_seq=$seq time=$rtt")
+            println("Calling semaphore.release()\n")
             semaphore.release()
          }
 
-         override fun onTimeout() {
+         override fun onTimeout(pingTarget : PingTarget) {
             println("Timeout")
          }
 
-         override fun onError(message : String) {
+         override fun onError(pingTarget : PingTarget, message : String) {
             println("Error: $message")
          }
       }
 
-      val selectorThread = Thread( {pinger.startSelector()})
+      val selectorThread = Thread( {pinger.runSelector()})
       selectorThread.isDaemon = false
       selectorThread.start()
 
-      val inetAddress = InetAddress.getByName("172.16.0.4")
-      val pingTarget = PingTarget(inetAddress)
+      val pingTargets = arrayOf(
+         PingTarget(InetAddress.getByName("172.16.0.5")),
+         PingTarget(InetAddress.getByName("172.16.0.6"))
+      )
       val pingHandler = PingHandler()
 
-      for (i in 0..10000) {
-         semaphore.acquire()
-         pinger.ping(pingTarget, pingHandler)
+      for (i in 0..(1 * pingTargets.size)) {
+         if (!semaphore.tryAcquire()) {
+            println("$i: Blocking on semaphore.acquire()")
+            semaphore.acquire()
+
+            // TimeUnit.MILLISECONDS.sleep(30)
+         }
+         println("$i: Calling pinger.ping()")
+         pinger.ping(pingTargets[i % 2], pingHandler)
       }
 
-      Thread.sleep(3000)
-
+      Thread.sleep(2000)
       pinger.stopSelector()
    }
 }

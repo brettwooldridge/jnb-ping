@@ -16,34 +16,61 @@
 
 package com.zaxxer.ping
 
-import com.zaxxer.ping.impl.*
+import com.zaxxer.ping.impl.ICMP_ECHOREPLY
+import com.zaxxer.ping.impl.IPPROTO_ICMP
+import com.zaxxer.ping.impl.IPPROTO_ICMPV6
+import com.zaxxer.ping.impl.Icmp
+import com.zaxxer.ping.impl.Ip
+import com.zaxxer.ping.impl.NativeIcmpSocketChannel
+import com.zaxxer.ping.impl.PF_INET
+import com.zaxxer.ping.impl.PF_INET6
+import com.zaxxer.ping.impl.PingActor
+import com.zaxxer.ping.impl.SOCK_DGRAM
+import com.zaxxer.ping.impl.SOL_SOCKET
+import com.zaxxer.ping.impl.SO_TIMESTAMP
+import com.zaxxer.ping.impl.libc
+import com.zaxxer.ping.impl.ntohs
+import com.zaxxer.ping.impl.posix
+import com.zaxxer.ping.impl.runtime
+import com.zaxxer.ping.impl.util.dumpBuffer
 import it.unimi.dsi.fastutil.shorts.Short2ObjectOpenHashMap
 import jnr.constants.platform.Errno
 import jnr.enxio.channels.NativeSelectorProvider
 import jnr.ffi.byref.IntByReference
 import java.io.IOException
+import java.net.Inet4Address
+import java.net.InetAddress
 import java.nio.ByteBuffer
 import java.nio.channels.SelectionKey
-import java.nio.channels.spi.AbstractSelector
+import java.nio.channels.Selector
+import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 
 /**
  * Created by Brett Wooldridge on 2017/10/03.
+ *
+ * Ref:
+ *   https://stackoverflow.com/questions/8290046/icmp-sockets-linux
  */
+
+data class PingTarget(val inetAddress : InetAddress)
+
+interface PingResponseHandler {
+   fun onResponse(pingTarget : PingTarget, rtt : Double, bytes : Int, seq : Int)
+
+   fun onTimeout(pingTarget : PingTarget)
+
+   fun onError(pingTarget : PingTarget, message : String)
+}
+
 class IcmpPinger {
 
-   private val selector : AbstractSelector
+   private val selector : Selector
    private val ipv4Channel : NativeIcmpSocketChannel
    private var ipv6Channel : NativeIcmpSocketChannel
+
    private val actorMap = Short2ObjectOpenHashMap<PingActor>()
-
-   interface PingResponseHandler {
-      fun onResponse(rtt : Double, bytes : Int, seq : Int)
-
-      fun onTimeout()
-
-      fun onError(message : String)
-   }
+   private val pendingPings = LinkedBlockingQueue<PingActor>()
 
    init {
       try {
@@ -78,7 +105,19 @@ class IcmpPinger {
       // libc.setsockopt(fd, SOL_SOCKET, SO_RCVBUF, rcvbuf, rcvbuf.nativeSize(runtime))
    }
 
-   fun startSelector() {
+   @Throws(IOException::class)
+   fun ping(pingTarget : PingTarget, handler : PingResponseHandler) {
+      val isIPv4 = (pingTarget.inetAddress is Inet4Address)
+      val channel = if (isIPv4) ipv4Channel else ipv6Channel
+
+      val actor = PingActor(selector, channel.fd, pingTarget, handler)
+      actorMap.put(actor.id, actor)
+      pendingPings.offer(actor)
+
+      channel.register(selector, SelectionKey.OP_WRITE or SelectionKey.OP_READ, channel)
+   }
+
+   fun runSelector() {
       try {
          while (selector.select() > 0) {
             val selectionKeys = selector.selectedKeys()
@@ -86,20 +125,23 @@ class IcmpPinger {
             while (iterator.hasNext()) {
                val key = iterator.next()
 
-               val attachement = key.attachment()
-               if (attachement is PingActor) {
-                  val pingActor = key.attachment() as PingActor
-                  pingActor.sendIcmp()
+               val readyOps = key.readyOps()
+               if (readyOps and SelectionKey.OP_WRITE != 0) {
+                  while (pendingPings.isNotEmpty()) {
+                     val pingActor = pendingPings.take()
+                     pingActor.sendIcmp()
+                  }
                }
-               else {
+               else if (readyOps and SelectionKey.OP_READ != 0) {
                   // read and lookup actor id in map
-                  recvIcmp((attachement as NativeIcmpSocketChannel).fd)
+                  recvIcmp((key.attachment() as NativeIcmpSocketChannel).fd)
                }
 
                iterator.remove()
             }
 
-            ipv4Channel.register(selector, SelectionKey.OP_READ, this)
+            val interestedOps = (if (pendingPings.isNotEmpty()) SelectionKey.OP_WRITE else 0) or (if (actorMap.isNotEmpty()) SelectionKey.OP_READ else 0)
+            ipv4Channel.register(selector, interestedOps, ipv4Channel)
          }
       }
       catch (e : IOException) {
@@ -113,23 +155,6 @@ class IcmpPinger {
       if (ipv6Channel.fd > 0) libc.close(ipv6Channel.fd)
    }
 
-   /**
-    * https://stackoverflow.com/questions/8290046/icmp-sockets-linux
-    */
-   @Throws(IOException::class)
-   fun ping(pingTarget : PingTarget, handler : PingResponseHandler) {
-      val isIPv6 = (pingTarget.sockAddr is SockAddr6)
-      val channel = if (isIPv6) ipv6Channel else ipv4Channel
-
-      val actor = PingActor(selector, channel.fd, pingTarget.sockAddr, handler)
-      actorMap.put(actor.id, actor)
-
-      //val pingChannel = NativeIcmpSocketChannel(pingTarget, if (isIPv6) fd6 else fd4)
-      // pingChannel.configureBlocking(false)
-
-      channel.register(selector, SelectionKey.OP_WRITE, actor)
-   }
-
    private fun recvIcmp(fd : Int) {
       val packetBuffer = ByteBuffer.allocateDirect(128)
 
@@ -141,7 +166,7 @@ class IcmpPinger {
       var cc = posix.recvmsg(fd, msgHdr, 0)
       if (cc > 0) {
          packetBuffer.limit(cc)
-//         dumpBuffer("Ping response", packetBuffer)
+         dumpBuffer("Ping response", packetBuffer)
 
          val packetPointer = runtime.memoryManager.newPointer(packetBuffer)
          val ip = Ip()
@@ -153,6 +178,7 @@ class IcmpPinger {
          icmp.useMemory(packetPointer.slice(headerLen.toLong()))
          val id = ntohs(icmp.icmp_hun.ih_idseq.icd_id.get().toShort())
          if (icmp.icmp_type.get() != ICMP_ECHOREPLY) {
+            println("^ Opps, not our response.")
             return // 'Twas not our ECHO
          }
 
@@ -174,18 +200,21 @@ class IcmpPinger {
 //            triptime = (tv32.tv32_sec.get().toDouble()) * 1000.0 + (tv32.tv32_usec.get().toDouble()) / 1000.0
 //         }
 
-         val actor: PingActor? = actorMap.get(id)
+         val actor: PingActor? = actorMap.remove(id)
          if (actor != null) {
             val usElapsed = TimeUnit.NANOSECONDS.toMicros(System.nanoTime() - actor.sendTimestamp)
             val triptime = (usElapsed.toDouble() / 1000.0)
             val seq = ntohs(icmp.icmp_hun.ih_idseq.icd_seq.shortValue())
 
-            actor.handler.onResponse(triptime, cc, seq.toInt())
+            actor.onResponse(triptime, cc, seq.toInt())
          }
       }
       else {
          val errno = posix.errno()
-         if (posix.errno() != Errno.EINTR.intValue()) {
+         if (errno == Errno.EAGAIN.intValue()) {
+            return
+         }
+         else if (errno != Errno.EINTR.intValue()) {
             println("Error code $errno returned from pingChannel.read()")
          }
       }
