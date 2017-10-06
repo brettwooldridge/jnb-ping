@@ -111,9 +111,10 @@ val ICMP_ECHO = 8.toShort()
 val ICMP_ECHOREPLY = 0.toShort()
 
 val SOL_SOCKET = if (isBSD) 0xffff else 1
+
 val SO_TIMESTAMP = if (isBSD) 0x0400 else 29
 val SO_RCVBUF = if (isBSD) 0x1002 else 8
-
+val SO_REUSEPORT = if (isBSD) 0x0200 else 15
 val SCM_TIMESTAMP = if (isBSD) 0x02 else SO_TIMESTAMP
 
 interface LibC {

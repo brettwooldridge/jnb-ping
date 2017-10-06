@@ -53,18 +53,18 @@ class PingTest {
 
       class PingHandler : PingResponseHandler {
          override fun onResponse(pingTarget : PingTarget, rtt : Double, bytes : Int, seq : Int) {
-            println("$bytes bytes from $pingTarget: icmp_seq=$seq time=$rtt")
+            println("  ${Thread.currentThread()} $bytes bytes from $pingTarget: icmp_seq=$seq time=$rtt")
 
-            println("Calling semaphore.release()\n")
+            println("  ${Thread.currentThread()} Calling semaphore.release()\n")
             semaphore.release()
          }
 
          override fun onTimeout(pingTarget : PingTarget) {
-            println("Timeout")
+            println("  ${Thread.currentThread()} Timeout")
          }
 
          override fun onError(pingTarget : PingTarget, message : String) {
-            println("Error: $message")
+            println("  ${Thread.currentThread()} Error: $message")
          }
       }
 
@@ -73,23 +73,24 @@ class PingTest {
       selectorThread.start()
 
       val pingTargets = arrayOf(
-         PingTarget(InetAddress.getByName("172.16.0.5")),
+         PingTarget(InetAddress.getByName("172.16.0.1")),
          PingTarget(InetAddress.getByName("172.16.0.6"))
       )
       val pingHandler = PingHandler()
 
-      for (i in 0..(1 * pingTargets.size)) {
+      for (i in 0..(100 * pingTargets.size)) {
          if (!semaphore.tryAcquire()) {
             println("$i: Blocking on semaphore.acquire()")
             semaphore.acquire()
 
             // TimeUnit.MILLISECONDS.sleep(30)
          }
-         println("$i: Calling pinger.ping()")
+         println("$i: Calling pinger.ping(${pingTargets[i % 2].inetAddress})")
          pinger.ping(pingTargets[i % 2], pingHandler)
       }
 
-      Thread.sleep(2000)
+      while (pinger.isPending()) Thread.sleep(500)
+
       pinger.stopSelector()
    }
 }

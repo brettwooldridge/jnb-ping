@@ -18,6 +18,7 @@
 
 package com.zaxxer.ping.impl
 
+import com.zaxxer.ping.DEBUG
 import com.zaxxer.ping.PingResponseHandler
 import com.zaxxer.ping.PingTarget
 import jnr.ffi.Struct
@@ -118,10 +119,10 @@ internal class PingActor(private val selector : Selector,
 
       val rc = libc.sendto(fd, outpackBuffer, outpackBuffer.remaining(), 0, sockAddr, Struct.size(sockAddr))
       if (rc == outpackBuffer.remaining()) {
-         println("icmp packet(seq=$seq) send successful\n")
+         if (DEBUG) println("   ICMP packet(seq=$seq) send to ${pingTarget.inetAddress} successful")
       }
       else {
-         error("sendto() returned $rc")
+         if (DEBUG) println("   Error: icmp sendto() to ${pingTarget.inetAddress} for seq=$seq returned $rc")
       }
    }
 

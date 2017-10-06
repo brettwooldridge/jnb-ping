@@ -27,7 +27,7 @@ internal fun dumpBuffer(message : String, buffer : ByteBuffer) {
    val tmpBuffer = buffer.duplicate()
    tmpBuffer.get(bytes, 0, bytes.size)
 
-   println(message)
+   println("   $message")
    println(dump(0, bytes, 0, bytes.size))
 }
 
@@ -52,7 +52,7 @@ fun dump(displayOffset : Int, data : ByteArray, offset : Int, len : Int) : Strin
    val lines = (len + 16) / 16
    for (i in 0 until lines) {
       ascii.append(" |")
-      formatter.format("%08x  ", displayOffset + i * 16)
+      formatter.format("   %08x  ", displayOffset + i * 16)
 
       for (j in 0..15) {
          if (dataNdx < maxDataNdx) {
