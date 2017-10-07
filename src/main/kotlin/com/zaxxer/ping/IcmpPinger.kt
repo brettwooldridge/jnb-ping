@@ -19,16 +19,19 @@ package com.zaxxer.ping
 import com.zaxxer.ping.IcmpPinger.Companion.ID_SEQUENCE
 import com.zaxxer.ping.impl.*
 import com.zaxxer.ping.impl.util.dumpBuffer
-import it.unimi.dsi.fastutil.shorts.Short2ObjectOpenHashMap
+import it.unimi.dsi.fastutil.shorts.Short2ObjectLinkedOpenHashMap
 import jnr.constants.platform.Errno
 import jnr.ffi.Struct
 import jnr.ffi.byref.IntByReference
 import jnr.posix.Timeval
+import java.lang.Exception
+import java.lang.System.currentTimeMillis
 import java.net.Inet4Address
 import java.net.InetAddress
 import java.nio.ByteBuffer
 import java.time.Instant
 import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit.SECONDS
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -38,12 +41,15 @@ import java.util.concurrent.atomic.AtomicInteger
  *   https://stackoverflow.com/questions/8290046/icmp-sockets-linux
  */
 
-data class PingTarget(val inetAddress : InetAddress) {
-   val id = (ID_SEQUENCE.getAndIncrement() % 0xffff).toShort()
-
+data class PingTarget(val inetAddress : InetAddress, val timeoutMs : Long = SECONDS.toMillis(1)) {
+   internal val id = (ID_SEQUENCE.getAndIncrement() % 0xffff).toShort()
    internal var sequence = 0.toShort()
    internal val sockAddr : SockAddr
    internal val isIPv4 : Boolean
+   internal var timeout = 0L
+      set(value) {
+         field = value + timeoutMs
+      }
 
    init {
       if (inetAddress is Inet4Address) {
@@ -73,8 +79,8 @@ interface PingResponseHandler {
 
 class IcmpPinger(private val responseHandler : PingResponseHandler) {
 
-   private val actor4Map = Short2ObjectOpenHashMap<PingTarget>()
-   private val actor6Map = Short2ObjectOpenHashMap<PingTarget>()
+   private val actor4Map = Short2ObjectLinkedOpenHashMap<PingTarget>()
+   private val actor6Map = Short2ObjectLinkedOpenHashMap<PingTarget>()
 
    private val pending4Pings = LinkedBlockingQueue<PingTarget>()
    private val pending6Pings = LinkedBlockingQueue<PingTarget>()
@@ -91,7 +97,7 @@ class IcmpPinger(private val responseHandler : PingResponseHandler) {
 
    companion object {
       @JvmStatic
-      val ID_SEQUENCE = AtomicInteger()
+      internal val ID_SEQUENCE = AtomicInteger()
    }
 
    init {
@@ -148,6 +154,9 @@ class IcmpPinger(private val responseHandler : PingResponseHandler) {
 
          if (FD_ISSET(fd4, readSet)) processWaiting(fd4)
          if (FD_ISSET(fd6, readSet)) processWaiting(fd6)
+
+         processTimeouts(actor4Map)
+         processTimeouts(actor6Map)
 
          if (DEBUG) {
             println("   Pending ping count ${pending4Pings.size + pending6Pings.size}")
@@ -212,6 +221,27 @@ class IcmpPinger(private val responseHandler : PingResponseHandler) {
       } while (more)
    }
 
+   private fun processTimeouts(targets : Short2ObjectLinkedOpenHashMap<PingTarget>) {
+      if (targets.isEmpty()) return
+
+      val now = currentTimeMillis()
+      val iterator = targets.values.iterator()
+      while (iterator.hasNext()) {
+         val pingTarget = iterator.next()
+         if (now < pingTarget.timeout) break
+
+         try {
+            responseHandler.onTimeout(pingTarget)
+         }
+         catch (e : Exception) {
+            continue
+         }
+         finally {
+            iterator.remove()
+         }
+      }
+   }
+
    private fun sendIcmp(pingTarget : PingTarget, fd : Int) : Boolean {
       sendBuffer.position(SIZEOF_STRUCT_IP)
       val outpackBuffer = sendBuffer.slice()
@@ -252,6 +282,7 @@ class IcmpPinger(private val responseHandler : PingResponseHandler) {
 
       val rc = libc.sendto(fd, outpackBuffer, outpackBuffer.remaining(), 0, pingTarget.sockAddr, Struct.size(pingTarget.sockAddr))
       if (rc == outpackBuffer.remaining()) {
+         pingTarget.timeout = currentTimeMillis()
          if (DEBUG) println("   ICMP packet(seq=$seq) send to ${pingTarget.inetAddress} successful")
          return true
       }

@@ -64,6 +64,7 @@ class PingTest {
 
          override fun onTimeout(pingTarget : PingTarget) {
             println("  ${Thread.currentThread()} Timeout")
+            semaphore.release()
          }
 
          override fun onError(pingTarget : PingTarget, message : String) {
