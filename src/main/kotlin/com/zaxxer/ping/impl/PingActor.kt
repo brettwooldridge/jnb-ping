@@ -24,7 +24,6 @@ import com.zaxxer.ping.PingTarget
 import jnr.ffi.Struct
 import java.net.Inet4Address
 import java.nio.ByteBuffer
-import java.nio.channels.Selector
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -35,12 +34,11 @@ const val DEFAULT_DATALEN = 56
  * Created by Brett Wooldridge on 2017/10/04.
  */
 @Suppress("UNUSED_PARAMETER")
-internal class PingActor(private val selector : Selector,
-                         private val fd : Int,
-                         private val pingTarget : PingTarget,
+internal class PingActor(private val pingTarget : PingTarget,
                          private val handler : PingResponseHandler) {
 
    val id = (ID_SEQUENCE.getAndIncrement() % 0xffff).toShort()
+   val isIPv4 : Boolean
 
    internal var sendTimestamp : Long = 0
 
@@ -66,6 +64,7 @@ internal class PingActor(private val selector : Selector,
 
    init {
       if (pingTarget.inetAddress is Inet4Address) {
+         isIPv4 = true
          if (isBSD) {
             sockAddr = BSDSockAddr4(pingTarget.inetAddress)
          }
@@ -75,11 +74,12 @@ internal class PingActor(private val selector : Selector,
          }
       }
       else {  // IPv6
+         isIPv4 = false
          error("Not implemented")
       }
    }
 
-   fun sendIcmp() {
+   fun sendIcmp(fd : Int) : Boolean {
       buf.position(SIZEOF_STRUCT_IP)
       val outpackBuffer = buf.slice()
       buf.clear()
@@ -120,9 +120,11 @@ internal class PingActor(private val selector : Selector,
       val rc = libc.sendto(fd, outpackBuffer, outpackBuffer.remaining(), 0, sockAddr, Struct.size(sockAddr))
       if (rc == outpackBuffer.remaining()) {
          if (DEBUG) println("   ICMP packet(seq=$seq) send to ${pingTarget.inetAddress} successful")
+         return true
       }
       else {
          if (DEBUG) println("   Error: icmp sendto() to ${pingTarget.inetAddress} for seq=$seq returned $rc")
+         return false
       }
    }
 

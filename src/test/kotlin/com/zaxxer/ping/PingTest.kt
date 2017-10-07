@@ -1,9 +1,7 @@
 package com.zaxxer.ping
 
-import com.zaxxer.ping.impl.Icmp
-import com.zaxxer.ping.impl.Ip
-import com.zaxxer.ping.impl.Tv32
-import com.zaxxer.ping.impl.icmpCksum
+import com.zaxxer.ping.impl.*
+import com.zaxxer.ping.impl.util.dumpBuffer
 import jnr.ffi.Struct
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -11,7 +9,6 @@ import java.io.IOException
 import java.net.InetAddress
 import java.nio.ByteBuffer
 import java.util.concurrent.Semaphore
-import java.util.concurrent.TimeUnit
 
 class PingTest {
 
@@ -42,13 +39,19 @@ class PingTest {
       assertEquals(6, Icmp().icmp_hun.ih_idseq.icd_seq.offset())
       assertEquals(8, Icmp().icmp_dun.id_data.offset())
       assertEquals(8, Struct.size(Tv32()))
-      println("Checksum offset: " + Icmp().icmp_cksum.offset())
+      assertEquals(128, Struct.size(Fd_set()))
+
+      val buffer = ByteBuffer.allocateDirect(128)
+      val fdSet = Fd_set()
+      fdSet.useMemory(runtime.memoryManager.newPointer(buffer))
+      FD_SET(76, fdSet)
+      dumpBuffer("fd_set memory dump:", buffer)
+      assertEquals(4096, fdSet.fds_bits[2].get())
    }
 
    @Test
    @Throws(IOException::class)
    fun pingTest1() {
-      val pinger = IcmpPinger()
       val semaphore = Semaphore(2)
 
       class PingHandler : PingResponseHandler {
@@ -68,15 +71,16 @@ class PingTest {
          }
       }
 
+      val pinger = IcmpPinger(PingHandler())
+
       val selectorThread = Thread( {pinger.runSelector()})
       selectorThread.isDaemon = false
       selectorThread.start()
 
       val pingTargets = arrayOf(
-         PingTarget(InetAddress.getByName("172.16.0.1")),
-         PingTarget(InetAddress.getByName("172.16.0.6"))
+         PingTarget(InetAddress.getByName("192.168.1.4")),
+         PingTarget(InetAddress.getByName("192.168.1.5"))
       )
-      val pingHandler = PingHandler()
 
       for (i in 0..(100 * pingTargets.size)) {
          if (!semaphore.tryAcquire()) {
@@ -86,7 +90,7 @@ class PingTest {
             // TimeUnit.MILLISECONDS.sleep(30)
          }
          println("$i: Calling pinger.ping(${pingTargets[i % 2].inetAddress})")
-         pinger.ping(pingTargets[i % 2], pingHandler)
+         pinger.ping(pingTargets[i % 2])
       }
 
       while (pinger.isPending()) Thread.sleep(500)

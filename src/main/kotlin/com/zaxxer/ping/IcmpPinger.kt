@@ -16,40 +16,17 @@
 
 package com.zaxxer.ping
 
-import com.zaxxer.ping.impl.ICMP_ECHOREPLY
-import com.zaxxer.ping.impl.IPPROTO_ICMP
-import com.zaxxer.ping.impl.IPPROTO_ICMPV6
-import com.zaxxer.ping.impl.Icmp
-import com.zaxxer.ping.impl.Ip
-import com.zaxxer.ping.impl.NativeIcmpSocketChannel
-import com.zaxxer.ping.impl.PF_INET
-import com.zaxxer.ping.impl.PF_INET6
-import com.zaxxer.ping.impl.PingActor
-import com.zaxxer.ping.impl.SOCK_DGRAM
-import com.zaxxer.ping.impl.SOL_SOCKET
-import com.zaxxer.ping.impl.SO_REUSEPORT
-import com.zaxxer.ping.impl.SO_TIMESTAMP
-import com.zaxxer.ping.impl.libc
-import com.zaxxer.ping.impl.ntohs
-import com.zaxxer.ping.impl.posix
-import com.zaxxer.ping.impl.runtime
+import com.zaxxer.ping.impl.*
 import com.zaxxer.ping.impl.util.dumpBuffer
 import it.unimi.dsi.fastutil.shorts.Short2ObjectOpenHashMap
 import jnr.constants.platform.Errno
-import jnr.enxio.channels.NativeSelectorProvider
+import jnr.ffi.Struct
 import jnr.ffi.byref.IntByReference
-import java.io.IOException
-import java.net.Inet4Address
+import jnr.posix.Timeval
 import java.net.InetAddress
 import java.nio.ByteBuffer
-import java.nio.channels.ClosedChannelException
-import java.nio.channels.SelectionKey
-import java.nio.channels.Selector
-import java.text.SimpleDateFormat
-import java.util.*
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.LongAdder
 
 /**
  * Created by Brett Wooldridge on 2017/10/03.
@@ -68,120 +45,137 @@ interface PingResponseHandler {
    fun onError(pingTarget : PingTarget, message : String)
 }
 
-class IcmpPinger {
+class IcmpPinger(private val responseHandler : PingResponseHandler) {
 
-   private val selector : Selector
-   private val ipv4Channel : NativeIcmpSocketChannel
-   private var ipv6Channel : NativeIcmpSocketChannel
+   private val actor4Map = Short2ObjectOpenHashMap<PingActor>()
+   private val actor6Map = Short2ObjectOpenHashMap<PingActor>()
 
-   private val actorMap = Short2ObjectOpenHashMap<PingActor>()
-   private val pendingPings = LinkedBlockingQueue<PingActor>()
-   private val pendingResponseCount = LongAdder()
+   private val pending4Pings = LinkedBlockingQueue<PingActor>()
+   private val pending6Pings = LinkedBlockingQueue<PingActor>()
 
-   private val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS")
+   // private val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS")
+   private var fd4 : Int = 0
+   private var fd6 : Int = 0
+   private val pipefd = IntArray(2)
+   private val readSet = Fd_set()
+   private val writeSet = Fd_set()
+   private @Volatile var running = true
+
    init {
-      try {
-         selector = NativeSelectorProvider.getInstance().openSelector()
-      }
-      catch (e : IOException) {
-         throw RuntimeException(e)
-      }
-
-      val fd4 = libc.socket(PF_INET, SOCK_DGRAM, IPPROTO_ICMP)
-      val fd6 = libc.socket(PF_INET6, SOCK_DGRAM, IPPROTO_ICMPV6)
-
-      val on = IntByReference(1)
-      libc.setsockopt(fd4, SOL_SOCKET, SO_TIMESTAMP, on, on.nativeSize(runtime))
-      libc.setsockopt(fd6, SOL_SOCKET, SO_TIMESTAMP, on, on.nativeSize(runtime))
-
-      libc.setsockopt(fd4, SOL_SOCKET, SO_REUSEPORT, on, on.nativeSize(runtime))
-      libc.setsockopt(fd6, SOL_SOCKET, SO_REUSEPORT, on, on.nativeSize(runtime))
-
-      ipv4Channel = NativeIcmpSocketChannel(fd4)
-      ipv4Channel.configureBlocking(false)
-
-      ipv6Channel = NativeIcmpSocketChannel(fd6)
-      ipv6Channel.configureBlocking(false)
-
       // Better handled by altering the OS default rcvbuf size
       // val rcvbuf = IntByReference(2048)
       // libc.setsockopt(fd, SOL_SOCKET, SO_RCVBUF, rcvbuf, rcvbuf.nativeSize(runtime))
+
+      pipefd[0] = -1
+      pipefd[1] = -1
+      libc.pipe(pipefd)
+
+      setNonBlocking(pipefd[0])
+      setNonBlocking(pipefd[1])
+
+      resetFdSets()
    }
 
-   @Throws(IOException::class)
-   fun ping(pingTarget : PingTarget, handler : PingResponseHandler) {
-      val isIPv4 = (pingTarget.inetAddress is Inet4Address)
-      val channel = if (isIPv4) ipv4Channel else ipv6Channel
+   fun ping(pingTarget : PingTarget) {
+      val pingActor = PingActor(pingTarget, responseHandler)
 
-      val actor = PingActor(selector, channel.fd, pingTarget, handler)
-      pendingPings.offer(actor)
+      if (pingActor.isIPv4) {
+         pending4Pings.offer(pingActor)
+      }
+      else {
+         pending6Pings.offer(pingActor)
+      }
 
-      // selector.wakeup()
-      channel.register(selector, SelectionKey.OP_WRITE or SelectionKey.OP_READ, channel)
+      wakeup()
    }
 
    fun runSelector() {
-      try {
-         while (selector.isOpen) {
-            val selectedCount = selector.select()
-            if (DEBUG) println("   ${dateFormat.format(Date())} ${if (selectedCount > 0) "triggered" else "awoken"}")
+      val readSetPtr = Struct.getMemory(readSet)
+      val writeSetPtr = Struct.getMemory(writeSet)
 
-            if (selectedCount > 0) {
-               val selectionKeys = selector.selectedKeys()
-               val iterator = selectionKeys.iterator()
-               while (iterator.hasNext()) {
-                  val key = iterator.next()
+      val oneHundredMs = posix.allocateTimeval()
+      val infinite : Timeval? = null
 
-                  val readyOps = key.readyOps()
-                  if (readyOps and SelectionKey.OP_WRITE != 0) {
-                     while (pendingPings.isNotEmpty()) {
-                        val pingActor = pendingPings.take()
-                        pingActor.sendIcmp()
-                        actorMap.put(pingActor.id, pingActor)
-                        pendingResponseCount.increment()
-                     }
-                  }
+      var noopLoops = 0
+      var timeVal: Timeval? = infinite
+      while (running) {
+         // must be reset because select() can modify it
+         oneHundredMs.sec(0)
+         oneHundredMs.usec(100_000)
 
-                  if (readyOps and SelectionKey.OP_READ != 0) {
-                     do {
-                        // read and lookup actor id in map
-                        val more = recvIcmp((key.attachment() as NativeIcmpSocketChannel).fd)
-                     } while (more)
-                  }
+         val nfds = maxOf(maxOf(fd4, fd4), pipefd[0]) + 1
+         val rc = libc.select(nfds, readSetPtr, writeSetPtr, null /*errorSet*/, timeVal)
+         if (rc < 0) {
+            println("select() returned errno ${posix.errno()}")
+            break
+         }
 
-                  iterator.remove()
-               }
-            }
+         if (FD_ISSET(pipefd[0], readSet)) wakeupReceived()
 
-            if (DEBUG) {
-               println("   Pending ping count ${pendingPings.size}")
-               println("   Pending actor count ${pendingResponseCount.sum()}")
-            }
+         if (FD_ISSET(fd4, writeSet)) processPending(pending4Pings, fd4)
+         if (FD_ISSET(fd6, writeSet)) processPending(pending4Pings, fd6)
 
-            try {
-               val interestedOps = (if (pendingPings.isNotEmpty()) SelectionKey.OP_WRITE else 0) or SelectionKey.OP_READ
-               if (DEBUG) println("   ${dateFormat.format(Date())} Registering interest in ops ${Integer.toBinaryString(interestedOps)}")
-               ipv4Channel.register(selector, interestedOps, ipv4Channel)
-            }
-            catch (e : ClosedChannelException) {
-               // ignore, we'll exit the loop at the top
+         if (FD_ISSET(fd4, readSet)) processWaiting(fd4)
+         if (FD_ISSET(fd6, readSet)) processWaiting(fd6)
+
+         if (DEBUG) {
+            println("   Pending ping count ${pending4Pings.size + pending6Pings.size}")
+            println("   Pending actor count ${actor4Map.size + actor6Map.size}")
+         }
+
+         val isPending4reads = actor4Map.isNotEmpty()
+         val isPending6reads = actor6Map.isNotEmpty()
+         val isPending4writes = pending4Pings.isNotEmpty()
+         val isPending6writes = pending6Pings.isNotEmpty()
+
+         resetFdSets()
+         if (isPending4reads) FD_SET(fd4, readSet)
+         if (isPending6reads) FD_SET(fd6, readSet)
+         if (isPending4writes) FD_SET(fd4, writeSet)
+         if (isPending6writes) FD_SET(fd6, writeSet)
+
+         if (isPending4reads || isPending6reads || isPending4writes || isPending6writes) {
+            timeVal = oneHundredMs
+            noopLoops = 0
+         }
+         else {
+            if (noopLoops++ > 100) {
+               closeSockets()
+               timeVal = infinite
             }
          }
       }
-      catch (e : IOException) {
-         throw RuntimeException(e)
-      }
 
+      libc.close(pipefd[0])
+      libc.close(pipefd[1])
+      closeSockets()
    }
 
    fun stopSelector() {
-      selector.close()
-
-      if (ipv4Channel.fd > 0) libc.close(ipv4Channel.fd)
-      if (ipv6Channel.fd > 0) libc.close(ipv6Channel.fd)
+      running = false
+      wakeup()
    }
 
-   fun isPending() = pendingPings.isNotEmpty() || pendingResponseCount.sum() > 0
+   fun isPending() = pending4Pings.isNotEmpty() || pending6Pings.isNotEmpty() || actor4Map.isNotEmpty() || actor6Map.isNotEmpty()
+
+   private fun processPending(pendingPings : LinkedBlockingQueue<PingActor>, fd : Int) {
+      while (pendingPings.isNotEmpty()) {
+         val pingActor = pendingPings.peek()
+         if (pingActor.sendIcmp(fd)) {
+            pendingPings.take()
+            actor4Map.put(pingActor.id, pingActor)
+         }
+         else {
+            break
+         }
+      }
+   }
+
+   private fun processWaiting(fd : Int) {
+      do {
+         val more = recvIcmp(fd) // read and lookup actor id in map
+      } while (more)
+   }
 
    private fun recvIcmp(fd : Int) : Boolean {
       val packetBuffer = ByteBuffer.allocateDirect(128)
@@ -227,14 +221,13 @@ class IcmpPinger {
             //            triptime = (tv32.tv32_sec.get().toDouble()) * 1000.0 + (tv32.tv32_usec.get().toDouble()) / 1000.0
             //         }
 
-            val actor : PingActor? = actorMap.remove(id)
+            val actor : PingActor? = actor4Map.remove(id)
             if (actor != null) {
                val usElapsed = TimeUnit.NANOSECONDS.toMicros(System.nanoTime() - actor.sendTimestamp)
                val triptime = (usElapsed.toDouble() / 1000.0)
                val seq = ntohs(icmp.icmp_hun.ih_idseq.icd_seq.shortValue())
 
                actor.onResponse(triptime, cc, seq.toInt())
-               pendingResponseCount.decrement()
             }
          }
       }
@@ -246,6 +239,51 @@ class IcmpPinger {
       }
 
       return cc > 0
+   }
+
+   private fun createSockets() {
+      fd4 = libc.socket(PF_INET, SOCK_DGRAM, IPPROTO_ICMP)
+      fd6 = libc.socket(PF_INET6, SOCK_DGRAM, IPPROTO_ICMPV6)
+
+      val on = IntByReference(1)
+      libc.setsockopt(fd4, SOL_SOCKET, SO_TIMESTAMP, on, on.nativeSize(runtime))
+      libc.setsockopt(fd6, SOL_SOCKET, SO_TIMESTAMP, on, on.nativeSize(runtime))
+
+      libc.setsockopt(fd4, SOL_SOCKET, SO_REUSEPORT, on, on.nativeSize(runtime))
+      libc.setsockopt(fd6, SOL_SOCKET, SO_REUSEPORT, on, on.nativeSize(runtime))
+
+      setNonBlocking(fd4)
+      setNonBlocking(fd6)
+   }
+
+   private fun closeSockets() {
+      if (fd4 > 0) libc.close(fd4)
+      if (fd6 > 0) libc.close(fd6)
+      fd4 = 0
+      fd6 = 0
+   }
+
+   private fun setNonBlocking(fd : Int) {
+      val flags4 = libc.fcntl(fd, F_GETFL, 0) or O_NONBLOCK
+      libc.fcntl(fd, F_SETFL, flags4)
+   }
+
+   private fun wakeupReceived() {
+      while (libc.read(pipefd[0], ByteArray(1), 1) > 0) {
+         // drain the wakeup pipe
+      }
+
+      if (fd4 == 0) {
+         createSockets()
+      }
+   }
+
+   private fun wakeup() = libc.write(pipefd[1], ByteArray(1), 1)
+
+   private fun resetFdSets() {
+      FD_ZERO(readSet)
+      FD_ZERO(writeSet)
+      FD_SET(pipefd[0], readSet)
    }
 }
 

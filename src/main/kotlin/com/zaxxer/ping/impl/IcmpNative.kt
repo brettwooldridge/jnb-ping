@@ -18,18 +18,13 @@
  * Created by Brett Wooldridge on 2017/10/03.
  */
 
-@file:Suppress("PropertyName", "unused", "ProtectedInFinal", "FunctionName")
+@file:Suppress("PropertyName", "unused", "ProtectedInFinal", "FunctionName", "ClassName")
 
 package com.zaxxer.ping.impl
 
 import jnr.constants.platform.AddressFamily.AF_INET
 import jnr.constants.platform.AddressFamily.AF_INET6
-import jnr.ffi.LibraryLoader
-import jnr.ffi.NativeType
-import jnr.ffi.Platform
-import jnr.ffi.Pointer
-import jnr.ffi.Struct
-import jnr.ffi.Union
+import jnr.ffi.*
 import jnr.ffi.annotations.In
 import jnr.ffi.annotations.Out
 import jnr.ffi.byref.IntByReference
@@ -38,6 +33,7 @@ import jnr.ffi.types.socklen_t
 import jnr.ffi.types.ssize_t
 import jnr.posix.POSIX
 import jnr.posix.POSIXFactory
+import jnr.posix.Timeval
 import java.net.Inet4Address
 import java.nio.ByteBuffer
 
@@ -117,10 +113,20 @@ val SO_RCVBUF = if (isBSD) 0x1002 else 8
 val SO_REUSEPORT = if (isBSD) 0x0200 else 15
 val SCM_TIMESTAMP = if (isBSD) 0x02 else SO_TIMESTAMP
 
+val F_GETFL = jnr.constants.platform.Fcntl.F_GETFL.intValue()
+val F_SETFL = jnr.constants.platform.Fcntl.F_SETFL.intValue()
+val O_NONBLOCK = jnr.constants.platform.OpenFlags.O_NONBLOCK.intValue()
+
 interface LibC {
    fun socket(domain : Int, type : Int, protocol : Int) : Int
 
    fun setsockopt(fd : Int, level : Int, option : Int, @In value : IntByReference, @socklen_t len : Int) : Int
+
+   fun fcntl(fd : Int, cmd : Int, data : Int) : Int
+
+   fun pipe(@Out fds : IntArray) : Int
+
+   fun select(fd : Int, read_set : Pointer, write_set : Pointer, @In @Out error_set : Fd_set?, @In @Out timeval : Timeval?) : Int
 
    fun inet_pton(af : Int, cp : String, buf : Pointer) : Int
 
@@ -128,24 +134,13 @@ interface LibC {
 
    fun close(fd : Int) : Int
 
-   fun bind(fd : Int, addr : SockAddr, len : Int) : Int
+   @ssize_t fun sendto (fd : Int, @In buf : ByteBuffer, @size_t len : Int, flags : Int, addr : SockAddr, @size_t addrLen : Int) : Int
 
-   @ssize_t
-   fun sendto (fd : Int, @In buf : ByteBuffer, @size_t len : Int, flags : Int, addr : SockAddr, @size_t addrLen : Int) : Int
+   @ssize_t fun recvfrom(fd : Int, @Out buf : ByteBuffer, @size_t len : Int, flags : Int, addr : SockAddr, addrLen : Int) : Int
 
-   @ssize_t
-   fun recvfrom(fd : Int, @Out buf : ByteBuffer, @size_t len : Int, flags : Int, addr : SockAddr, addrLen : Int) : Int
+   @ssize_t fun read(fd : Int, @Out data : ByteArray, @size_t size : Long) : Int
 
-   @ssize_t
-   fun read(fd : Int, @Out data : ByteBuffer, @size_t len : Int) : Int
-
-   @ssize_t
-   fun read(fd : Int, @Out data : ByteArray, @size_t len : Int) : Int
-
-   @ssize_t
-   fun write(fd : Int, @In data : ByteBuffer, @size_t len : Int) : Int
-
-   fun strerror(error : Int) : String
+   @ssize_t fun write(fd : Int, @In data : ByteArray, @size_t size : Long) : Int
 }
 
 fun htons(s : Short) = java.lang.Short.reverseBytes(s)
@@ -157,6 +152,50 @@ fun htonl(value : Long) : Long {
           ((value and 0x00ff0000) shr 8) or
           ((value and 0x0000ff00) shl 8) or
           ((value and 0x000000ff) shl 24)
+}
+
+// #define __DARWIN_FD_SETSIZE   1024
+// #define __DARWIN_NBBY            8                                /* bits in a byte */
+// #define __DARWIN_NFDBITS      (sizeof(__int32_t) * __DARWIN_NBBY) /* bits per mask */
+//
+// --> __DARWIN_NFDBITS = 4 * 8 = 32
+// --> __DARWIN_howmany = __DARWIN_FD_SETSIZE / __DARWIN_NFDBITS = 1024 / 32 = 32
+//
+// typedef struct fd_set {
+//    __int32_t  fds_bits[__DARWIN_howmany(__DARWIN_FD_SETSIZE, __DARWIN_NFDBITS)];
+// } fd_set;
+class Fd_set : Struct(runtime) {
+
+   @field:JvmField val fds_bits : Array<out Signed32> = Array(32, { Signed32() })
+
+   init {
+      val memory = this.runtime.memoryManager.allocateDirect(size(this))
+      this.useMemory(memory)
+   }
+}
+
+fun FD_SET(fd : Int, fd_set : Fd_set) {
+   // ((fd_set*)->fds_bits[ (unsigned long)__fd / 32 ] |= ((__int32_t) (((unsigned long) 1) << ((unsigned long) __fd % 32))))
+   val ndx = fd / 32
+   val currvalue = fd_set.fds_bits[ndx].get()
+   val orValue = (1L shl (fd % 32)).toInt()
+   val newValue = currvalue or orValue
+   fd_set.fds_bits[ndx].set(newValue)
+}
+
+fun FD_ISSET(fd : Int, fd_set : Fd_set) : Boolean {
+   // return (_p->fds_bits[(unsigned long)_n/__DARWIN_NFDBITS] & ((__int32_t)(((unsigned long)1)<<((unsigned long)_n % __DARWIN_NFDBITS))))
+   val ndx = fd / 32
+   val currvalue = fd_set.fds_bits[ndx].get()
+   val andValue = (1L shl (fd % 32)).toInt()
+
+   return currvalue and andValue != 0
+}
+
+fun FD_ZERO(fd_set : Fd_set) {
+   for (bits in fd_set.fds_bits) {
+      bits.set(0L)
+   }
 }
 
 /*****************************************************************************
