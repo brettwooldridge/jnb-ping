@@ -16,6 +16,7 @@
 
 package com.zaxxer.ping
 
+import com.zaxxer.ping.IcmpPinger.Companion.ID_SEQUENCE
 import com.zaxxer.ping.impl.*
 import com.zaxxer.ping.impl.util.dumpBuffer
 import it.unimi.dsi.fastutil.shorts.Short2ObjectOpenHashMap
@@ -23,10 +24,12 @@ import jnr.constants.platform.Errno
 import jnr.ffi.Struct
 import jnr.ffi.byref.IntByReference
 import jnr.posix.Timeval
+import java.net.Inet4Address
 import java.net.InetAddress
 import java.nio.ByteBuffer
+import java.time.Instant
 import java.util.concurrent.LinkedBlockingQueue
-import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Created by Brett Wooldridge on 2017/10/03.
@@ -35,7 +38,30 @@ import java.util.concurrent.TimeUnit
  *   https://stackoverflow.com/questions/8290046/icmp-sockets-linux
  */
 
-data class PingTarget(val inetAddress : InetAddress)
+data class PingTarget(val inetAddress : InetAddress) {
+   val id = (ID_SEQUENCE.getAndIncrement() % 0xffff).toShort()
+
+   internal var sequence = 0.toShort()
+   internal val sockAddr : SockAddr
+   internal val isIPv4 : Boolean
+
+   init {
+      if (inetAddress is Inet4Address) {
+         isIPv4 = true
+         if (isBSD) {
+            sockAddr = BSDSockAddr4(inetAddress)
+         }
+         else {
+            sockAddr = LinuxSockAddr4()
+            // sockAddr.sin_addr.set(inAddr)
+         }
+      }
+      else {  // IPv6
+         isIPv4 = false
+         error("Not implemented")
+      }
+   }
+}
 
 interface PingResponseHandler {
    fun onResponse(pingTarget : PingTarget, rtt : Double, bytes : Int, seq : Int)
@@ -47,11 +73,13 @@ interface PingResponseHandler {
 
 class IcmpPinger(private val responseHandler : PingResponseHandler) {
 
-   private val actor4Map = Short2ObjectOpenHashMap<PingActor>()
-   private val actor6Map = Short2ObjectOpenHashMap<PingActor>()
+   private val actor4Map = Short2ObjectOpenHashMap<PingTarget>()
+   private val actor6Map = Short2ObjectOpenHashMap<PingTarget>()
 
-   private val pending4Pings = LinkedBlockingQueue<PingActor>()
-   private val pending6Pings = LinkedBlockingQueue<PingActor>()
+   private val pending4Pings = LinkedBlockingQueue<PingTarget>()
+   private val pending6Pings = LinkedBlockingQueue<PingTarget>()
+
+   private val sendBuffer = ByteBuffer.allocateDirect(128)
 
    // private val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS")
    private var fd4 : Int = 0
@@ -60,6 +88,11 @@ class IcmpPinger(private val responseHandler : PingResponseHandler) {
    private val readSet = Fd_set()
    private val writeSet = Fd_set()
    private @Volatile var running = true
+
+   companion object {
+      @JvmStatic
+      val ID_SEQUENCE = AtomicInteger()
+   }
 
    init {
       // Better handled by altering the OS default rcvbuf size
@@ -77,13 +110,11 @@ class IcmpPinger(private val responseHandler : PingResponseHandler) {
    }
 
    fun ping(pingTarget : PingTarget) {
-      val pingActor = PingActor(pingTarget, responseHandler)
-
-      if (pingActor.isIPv4) {
-         pending4Pings.offer(pingActor)
+      if (pingTarget.isIPv4) {
+         pending4Pings.offer(pingTarget)
       }
       else {
-         pending6Pings.offer(pingActor)
+         pending6Pings.offer(pingTarget)
       }
 
       wakeup()
@@ -158,10 +189,14 @@ class IcmpPinger(private val responseHandler : PingResponseHandler) {
 
    fun isPending() = pending4Pings.isNotEmpty() || pending6Pings.isNotEmpty() || actor4Map.isNotEmpty() || actor6Map.isNotEmpty()
 
-   private fun processPending(pendingPings : LinkedBlockingQueue<PingActor>, fd : Int) {
+   /**********************************************************************************************
+    *                                     Private Methods
+    */
+
+   private fun processPending(pendingPings : LinkedBlockingQueue<PingTarget>, fd : Int) {
       while (pendingPings.isNotEmpty()) {
          val pingActor = pendingPings.peek()
-         if (pingActor.sendIcmp(fd)) {
+         if (sendIcmp(pingActor, fd)) {
             pendingPings.take()
             actor4Map.put(pingActor.id, pingActor)
          }
@@ -177,13 +212,62 @@ class IcmpPinger(private val responseHandler : PingResponseHandler) {
       } while (more)
    }
 
+   private fun sendIcmp(pingTarget : PingTarget, fd : Int) : Boolean {
+      sendBuffer.position(SIZEOF_STRUCT_IP)
+      val outpackBuffer = sendBuffer.slice()
+      sendBuffer.clear()
+
+      val outpacketPointer = runtime.memoryManager.newPointer(outpackBuffer)
+
+      val tmpBuffer = outpackBuffer.duplicate()
+      tmpBuffer.position(ICMP_MINLEN + SIZEOF_STRUCT_TV32)
+      for (i in SIZEOF_STRUCT_TV32..DEFAULT_DATALEN)
+         tmpBuffer.put(i.toByte())
+
+      val instant = Instant.now()
+      val tv32 = Tv32()
+      tv32.useMemory(outpacketPointer.slice(ICMP_MINLEN.toLong(), SIZEOF_STRUCT_TV32.toLong()))
+      tv32.tv32_sec.set(instant.epochSecond)
+      tv32.tv32_usec.set(instant.nano / 1000)
+
+      val seq = pingTarget.sequence++
+      val icmp = Icmp()
+      icmp.useMemory(outpacketPointer)
+
+      icmp.icmp_type.set(ICMP_ECHO)
+      icmp.icmp_code.set(0)
+      icmp.icmp_cksum.set(0)
+      icmp.icmp_hun.ih_idseq.icd_seq.set(htons(seq))
+      icmp.icmp_hun.ih_idseq.icd_id.set(htons(pingTarget.id))
+
+      outpackBuffer.limit(ICMP_MINLEN + DEFAULT_DATALEN)
+
+      val cksumBuffer = outpackBuffer.slice()
+      val cksum = icmpCksum(cksumBuffer)
+      icmp.icmp_cksum.set(htons(cksum.toShort()))
+
+      // dumpBuffer(message = "Send buffer:", buffer = outpackBuffer)
+
+      // sendTimestamp = System.nanoTime()
+
+      val rc = libc.sendto(fd, outpackBuffer, outpackBuffer.remaining(), 0, pingTarget.sockAddr, Struct.size(pingTarget.sockAddr))
+      if (rc == outpackBuffer.remaining()) {
+         if (DEBUG) println("   ICMP packet(seq=$seq) send to ${pingTarget.inetAddress} successful")
+         return true
+      }
+      else {
+         if (DEBUG) println("   Error: icmp sendto() to ${pingTarget.inetAddress} for seq=$seq returned $rc")
+         return false
+      }
+   }
+
    private fun recvIcmp(fd : Int) : Boolean {
       val packetBuffer = ByteBuffer.allocateDirect(128)
 
       val msgHdr = posix.allocateMsgHdr()
       msgHdr.iov = arrayOf(packetBuffer)
       @Suppress("UNUSED_VARIABLE")
-      val cmsgHdr = msgHdr.allocateControl(PingActor.SIZEOF_STRUCT_TIMEVAL)
+      val cmsgHdr = msgHdr.allocateControl(SIZEOF_STRUCT_TIMEVAL)
 
       var cc = posix.recvmsg(fd, msgHdr, 0)
       if (cc > 0) {
@@ -207,7 +291,7 @@ class IcmpPinger(private val responseHandler : PingResponseHandler) {
             //         if (cc - ICMP_MINLEN >= SIZEOF_STRUCT_TIMEVAL) {
             //            val tp = packetPointer.slice(headerLen.toLong() + icmp.icmp_dun.id_data.offset())
             //            val tv1 = posix.allocateTimeval()
-            //            val tv1Pointer = runtime.memoryManager.newPointer(buf)
+            //            val tv1Pointer = runtime.memoryManager.newPointer(sendBuffer)
             //            tv1.useMemory(tv1Pointer)
             //            tp.transferTo(0, tv1Pointer, 0, SIZEOF_STRUCT_TV32.toLong())
             //
@@ -221,13 +305,13 @@ class IcmpPinger(private val responseHandler : PingResponseHandler) {
             //            triptime = (tv32.tv32_sec.get().toDouble()) * 1000.0 + (tv32.tv32_usec.get().toDouble()) / 1000.0
             //         }
 
-            val actor : PingActor? = actor4Map.remove(id)
-            if (actor != null) {
-               val usElapsed = TimeUnit.NANOSECONDS.toMicros(System.nanoTime() - actor.sendTimestamp)
-               val triptime = (usElapsed.toDouble() / 1000.0)
+            val pingTarget : PingTarget? = actor4Map.remove(id)
+            if (pingTarget != null) {
+               // val usElapsed = TimeUnit.NANOSECONDS.toMicros(System.nanoTime() - pingTarget.sendTimestamp)
+               val triptime = 1.0 // (usElapsed.toDouble() / 1000.0)
                val seq = ntohs(icmp.icmp_hun.ih_idseq.icd_seq.shortValue())
 
-               actor.onResponse(triptime, cc, seq.toInt())
+               responseHandler.onResponse(pingTarget, triptime, cc, seq.toInt())
             }
          }
       }

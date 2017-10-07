@@ -37,8 +37,6 @@ import jnr.posix.Timeval
 import java.net.Inet4Address
 import java.nio.ByteBuffer
 
-const val ICMP_MINLEN = 8
-
 val runtime : jnr.ffi.Runtime = jnr.ffi.Runtime.getSystemRuntime()!!
 val platform : Platform = Platform.getNativePlatform()
 val isBSD = platform.isBSD
@@ -95,6 +93,9 @@ class LinuxSockAddr6 : SockAddr6() {
    @field:JvmField val sin_scope_id = Unsigned32()
 }
 
+const val ICMP_MINLEN = 8
+const val IP_MAXPACKET = 65535
+const val DEFAULT_DATALEN = 56
 
 val PF_INET = AF_INET.intValue()
 val PF_INET6 = AF_INET6.intValue()
@@ -116,6 +117,10 @@ val SCM_TIMESTAMP = if (isBSD) 0x02 else SO_TIMESTAMP
 val F_GETFL = jnr.constants.platform.Fcntl.F_GETFL.intValue()
 val F_SETFL = jnr.constants.platform.Fcntl.F_SETFL.intValue()
 val O_NONBLOCK = jnr.constants.platform.OpenFlags.O_NONBLOCK.intValue()
+
+val SIZEOF_STRUCT_IP = Struct.size(Ip())
+val SIZEOF_STRUCT_TV32 = Struct.size(Tv32())
+val SIZEOF_STRUCT_TIMEVAL = Struct.size(posix.allocateTimeval())
 
 interface LibC {
    fun socket(domain : Int, type : Int, protocol : Int) : Int
