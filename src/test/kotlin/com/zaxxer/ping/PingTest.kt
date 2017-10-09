@@ -14,20 +14,19 @@ class PingTest {
 
    @Test
    fun testChecksum() {
-      val buffer = ByteBuffer.allocate(64)
+      val buffer = ByteBuffer.allocateDirect(64)
 
       for (i in 0..63)
          buffer.put(i.toByte())
 
-      buffer.flip()
-      assertEquals(64539, icmpCksum(buffer))
+      val pointer = runtime.memoryManager.newPointer(buffer)
+      assertEquals(64539, icmpCksum(pointer, 64))
 
       buffer.clear()
       for (i in 0..63)
          buffer.put((255 - i).toByte())
 
-      buffer.flip()
-      assertEquals(996, icmpCksum(buffer))
+      assertEquals(996, icmpCksum(pointer, 64))
    }
 
    @Test

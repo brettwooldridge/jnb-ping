@@ -139,7 +139,7 @@ interface LibC {
 
    fun close(fd : Int) : Int
 
-   @ssize_t fun sendto (fd : Int, @In buf : ByteBuffer, @size_t len : Int, flags : Int, addr : SockAddr, @size_t addrLen : Int) : Int
+   @ssize_t fun sendto (fd : Int, @In buf : Pointer, @size_t len : Int, flags : Int, addr : SockAddr, @size_t addrLen : Int) : Int
 
    @ssize_t fun recvfrom(fd : Int, @Out buf : ByteBuffer, @size_t len : Int, flags : Int, addr : SockAddr, addrLen : Int) : Int
 
@@ -345,22 +345,22 @@ class Tv32 : Struct(runtime) {
 }
 
 // See https://opensource.apple.com/source/network_cmds/network_cmds-329.2/ping.tproj/ping.c
-fun icmpCksum(buf : ByteBuffer) : Int {
+fun icmpCksum(buf : Pointer, len : Int) : Int {
    var sum = 0
 
-   buf.mark()
-   var nleft = buf.remaining()
+   var nleft = len
 
+   var offset = 0L
    while (nleft > 1) {
-      sum += ((buf.get().toInt() and 0xff) or ((buf.get().toInt() and 0xff) shl 8))  // read 16-bit unsigned
+      // sum += ((buf.get().toInt() and 0xff) or ((buf.get().toInt() and 0xff) shl 8))  // read 16-bit unsigned
+      sum += ((buf.getByte(offset).toInt() and 0xff) or ((buf.getByte(offset + 1).toInt() and 0xff) shl 8))
       nleft -= 2
+      offset += 2
    }
 
    if (nleft == 1) {
-      sum += buf.get().toShort()
+      sum += buf.getByte(offset).toShort()
    }
-
-   buf.reset()
 
    sum = (sum shr 16) + (sum and 0xffff)
    sum += (sum shr 16)
