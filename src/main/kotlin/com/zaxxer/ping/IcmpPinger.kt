@@ -24,6 +24,8 @@ import jnr.constants.platform.Errno
 import jnr.ffi.Pointer
 import jnr.ffi.Struct
 import jnr.ffi.byref.IntByReference
+import jnr.posix.CmsgHdr
+import jnr.posix.MsgHdr
 import jnr.posix.Timeval
 import java.lang.Exception
 import java.lang.System.currentTimeMillis
@@ -87,8 +89,18 @@ class IcmpPinger(private val responseHandler : PingResponseHandler) {
    private val pending4Pings = LinkedBlockingQueue<PingTarget>()
    private val pending6Pings = LinkedBlockingQueue<PingTarget>()
 
-   private val prebuiltBufferPointer : Pointer
-   private val socketBufferPointer : Pointer
+   private lateinit var prebuiltBuffer : ByteBuffer
+   private lateinit var socketBuffer : ByteBuffer
+
+   private lateinit var prebuiltBufferPointer : Pointer
+   private lateinit var socketBufferPointer : Pointer
+   private lateinit var outpacketPointer : Pointer
+
+   private lateinit var sendTv32 : Tv32
+   private lateinit var sendIcmp : Icmp
+
+   private lateinit var msgHdr : MsgHdr
+   private lateinit var cmsgHdr : CmsgHdr
 
    // private val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS")
    private var fd4 : Int = 0
@@ -117,9 +129,7 @@ class IcmpPinger(private val responseHandler : PingResponseHandler) {
 
       resetFdSets()
 
-      val buffers = buildBuffers()
-      prebuiltBufferPointer = buffers.first
-      socketBufferPointer = buffers.second
+      buildBuffers()
    }
 
    fun ping(pingTarget : PingTarget) {
@@ -193,7 +203,7 @@ class IcmpPinger(private val responseHandler : PingResponseHandler) {
             noopLoops = 0
          }
          else {
-            if (noopLoops++ > 100) {
+            if (noopLoops++ > 10) {
                closeSockets()
                timeVal = infinite
             }
@@ -267,27 +277,20 @@ class IcmpPinger(private val responseHandler : PingResponseHandler) {
    private fun sendIcmp(pingTarget : PingTarget, fd : Int, epochSecs : Long, epochUsecs : Long) : Boolean {
       prebuiltBufferPointer.transferFrom(0, socketBufferPointer, 0, BUFFER_SIZE)
 
-      val outpacketPointer = socketBufferPointer.slice(SIZEOF_STRUCT_IP.toLong())
+      sendTv32.tv32_sec.set(epochSecs)
+      sendTv32.tv32_usec.set(epochUsecs)
+
+      val seq = pingTarget.sequence++
+      sendIcmp.icmp_hun.ih_idseq.icd_seq.set(htons(seq))
+      sendIcmp.icmp_hun.ih_idseq.icd_id.set(htons(pingTarget.id))
+      sendIcmp.icmp_type.set(ICMP_ECHO)
+      sendIcmp.icmp_code.set(0)
+      sendIcmp.icmp_cksum.set(0)
 
       val packetSize = ICMP_MINLEN + DEFAULT_DATALEN
 
-      val tv32 = Tv32()
-      tv32.useMemory(outpacketPointer.slice(ICMP_MINLEN.toLong(), SIZEOF_STRUCT_TV32.toLong()))
-      tv32.tv32_sec.set(epochSecs)
-      tv32.tv32_usec.set(epochUsecs)
-
-      val seq = pingTarget.sequence++
-      val icmp = Icmp()
-      icmp.useMemory(outpacketPointer)
-
-      icmp.icmp_type.set(ICMP_ECHO)
-      icmp.icmp_code.set(0)
-      icmp.icmp_cksum.set(0)
-      icmp.icmp_hun.ih_idseq.icd_seq.set(htons(seq))
-      icmp.icmp_hun.ih_idseq.icd_id.set(htons(pingTarget.id))
-
       val cksum = icmpCksum(outpacketPointer, packetSize)
-      icmp.icmp_cksum.set(htons(cksum.toShort()))
+      sendIcmp.icmp_cksum.set(htons(cksum.toShort()))
 
       // dumpBuffer(message = "Send buffer:", buffer = outpackBuffer)
 
@@ -304,26 +307,18 @@ class IcmpPinger(private val responseHandler : PingResponseHandler) {
    }
 
    private fun recvIcmp(fd : Int) : Boolean {
-      val packetBuffer = ByteBuffer.allocateDirect(128)
-
-      val msgHdr = posix.allocateMsgHdr()
-      msgHdr.iov = arrayOf(packetBuffer)
-      @Suppress("UNUSED_VARIABLE")
-      val cmsgHdr = msgHdr.allocateControl(SIZEOF_STRUCT_TIMEVAL)
 
       var cc = posix.recvmsg(fd, msgHdr, 0)
       if (cc > 0) {
-         packetBuffer.limit(cc)
-         if (DEBUG) dumpBuffer("Ping response", packetBuffer)
+         if (DEBUG) dumpBuffer("Ping response", socketBuffer)
 
-         val packetPointer = runtime.memoryManager.newPointer(packetBuffer)
          val ip = Ip()
-         ip.useMemory(packetPointer)
+         ip.useMemory(socketBufferPointer)
          val headerLen = (ip.ip_vhl.get().toInt() and 0x0f shl 2)
          cc -= headerLen
 
          val icmp = Icmp()
-         icmp.useMemory(packetPointer.slice(headerLen.toLong()))
+         icmp.useMemory(socketBufferPointer.slice(headerLen.toLong()))
          val id = ntohs(icmp.icmp_hun.ih_idseq.icd_id.get().toShort())
          if (icmp.icmp_type.get() != ICMP_ECHOREPLY) {
             if (DEBUG) println("   ^ Opps, not our response.")
@@ -411,19 +406,30 @@ class IcmpPinger(private val responseHandler : PingResponseHandler) {
       FD_SET(pipefd[0], readSet)
    }
 
-   private fun buildBuffers() : Pair<Pointer, Pointer> {
-      val prebuiltBuffer = ByteBuffer.allocateDirect(BUFFER_SIZE.toInt())
-      val socketBuffer = ByteBuffer.allocateDirect(BUFFER_SIZE.toInt())
+   private fun buildBuffers() {
+      prebuiltBuffer = ByteBuffer.allocateDirect(BUFFER_SIZE.toInt())
+      prebuiltBufferPointer = runtime.memoryManager.newPointer(prebuiltBuffer)
 
-      val prebuiltBufferPointer = runtime.memoryManager.newPointer(prebuiltBuffer)
-      val sockBufferPointer = runtime.memoryManager.newPointer(socketBuffer)
+      socketBuffer = ByteBuffer.allocateDirect(BUFFER_SIZE.toInt())
+      socketBufferPointer = runtime.memoryManager.newPointer(socketBuffer)
+
+      outpacketPointer = socketBufferPointer.slice(SIZEOF_STRUCT_IP.toLong())
 
       val tmpBuffer = prebuiltBuffer.duplicate()
       tmpBuffer.position(SIZEOF_STRUCT_IP + ICMP_MINLEN + SIZEOF_STRUCT_TV32)
       for (i in SIZEOF_STRUCT_TV32..DEFAULT_DATALEN)
          tmpBuffer.put(i.toByte())
 
-      return Pair(prebuiltBufferPointer, sockBufferPointer)
+      sendTv32 = Tv32()
+      sendTv32.useMemory(outpacketPointer.slice(ICMP_MINLEN.toLong(), SIZEOF_STRUCT_TV32.toLong()))
+
+      sendIcmp = Icmp()
+      sendIcmp.useMemory(outpacketPointer)
+
+      msgHdr = posix.allocateMsgHdr()
+      msgHdr.iov = arrayOf(socketBuffer)
+
+      cmsgHdr = msgHdr.allocateControl(SIZEOF_STRUCT_TIMEVAL)
    }
 }
 
