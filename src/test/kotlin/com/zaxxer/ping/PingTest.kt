@@ -54,8 +54,8 @@ class PingTest {
       val semaphore = Semaphore(2)
 
       class PingHandler : PingResponseHandler {
-         override fun onResponse(pingTarget : PingTarget, rtt : Double, bytes : Int, seq : Int) {
-            println("  ${Thread.currentThread()} $bytes bytes from $pingTarget: icmp_seq=$seq time=$rtt")
+         override fun onResponse(pingTarget : PingTarget, responseTimeSec : Double, byteCount : Int, seq : Int) {
+            System.out.printf("  ${Thread.currentThread()} $byteCount bytes from $pingTarget: icmp_seq=$seq time=%1.6f\n", responseTimeSec)
 
             println("  ${Thread.currentThread()} Calling semaphore.release()\n")
             semaphore.release()
@@ -64,10 +64,6 @@ class PingTest {
          override fun onTimeout(pingTarget : PingTarget) {
             println("  ${Thread.currentThread()} Timeout")
             semaphore.release()
-         }
-
-         override fun onError(pingTarget : PingTarget, message : String) {
-            println("  ${Thread.currentThread()} Error: $message")
          }
       }
 
@@ -78,22 +74,22 @@ class PingTest {
       selectorThread.start()
 
       val pingTargets = arrayOf(
-         PingTarget(InetAddress.getByName("192.168.1.4")),
-         PingTarget(InetAddress.getByName("192.168.1.5"))
+         PingTarget(InetAddress.getByName("8.8.8.8")),
+         PingTarget(InetAddress.getByName("youtube.com"))
       )
 
-      for (i in 0..(100 * pingTargets.size)) {
+      for (i in 0..(10 * pingTargets.size)) {
          if (!semaphore.tryAcquire()) {
             println("$i: Blocking on semaphore.acquire()")
             semaphore.acquire()
 
             // TimeUnit.MILLISECONDS.sleep(30)
          }
-         println("$i: Calling pinger.ping(${pingTargets[i % 2].inetAddress})")
-         pinger.ping(pingTargets[i % 2])
+         println("$i: Calling pinger.ping(${pingTargets[i % pingTargets.size].inetAddress})")
+         pinger.ping(pingTargets[i % pingTargets.size])
       }
 
-      while (pinger.isPending()) Thread.sleep(500)
+      while (pinger.isPendingWork()) Thread.sleep(500)
 
       pinger.stopSelector()
    }

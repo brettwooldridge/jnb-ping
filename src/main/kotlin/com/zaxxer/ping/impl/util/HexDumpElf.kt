@@ -22,9 +22,11 @@ import java.util.Formatter
 const val MAX_VISIBLE = 127
 const val MIN_VISIBLE = 31
 
-internal fun dumpBuffer(message : String, buffer : ByteBuffer) {
-   val bytes = ByteArray(buffer.remaining())
+internal fun dumpBuffer(message : String, buffer : ByteBuffer, offset : Int = 0) {
    val tmpBuffer = buffer.duplicate()
+   tmpBuffer.position(offset)
+
+   val bytes = ByteArray(tmpBuffer.remaining())
    tmpBuffer.get(bytes, 0, bytes.size)
 
    println("   $message")

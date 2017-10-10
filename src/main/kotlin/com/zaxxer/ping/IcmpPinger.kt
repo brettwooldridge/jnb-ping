@@ -17,22 +17,58 @@
 package com.zaxxer.ping
 
 import com.zaxxer.ping.IcmpPinger.Companion.ID_SEQUENCE
-import com.zaxxer.ping.impl.*
+import com.zaxxer.ping.impl.BSDSockAddr4
+import com.zaxxer.ping.impl.DEFAULT_DATALEN
+import com.zaxxer.ping.impl.FD_ISSET
+import com.zaxxer.ping.impl.FD_SET
+import com.zaxxer.ping.impl.FD_ZERO
+import com.zaxxer.ping.impl.F_GETFL
+import com.zaxxer.ping.impl.F_SETFL
+import com.zaxxer.ping.impl.Fd_set
+import com.zaxxer.ping.impl.ICMP_ECHO
+import com.zaxxer.ping.impl.ICMP_ECHOREPLY
+import com.zaxxer.ping.impl.ICMP_MINLEN
+import com.zaxxer.ping.impl.IPPROTO_ICMP
+import com.zaxxer.ping.impl.IPPROTO_ICMPV6
+import com.zaxxer.ping.impl.Icmp
+import com.zaxxer.ping.impl.Ip
+import com.zaxxer.ping.impl.LinuxSockAddr4
+import com.zaxxer.ping.impl.O_NONBLOCK
+import com.zaxxer.ping.impl.PF_INET
+import com.zaxxer.ping.impl.PF_INET6
+import com.zaxxer.ping.impl.SEND_PACKET_SIZE
+import com.zaxxer.ping.impl.SIZEOF_STRUCT_IP
+import com.zaxxer.ping.impl.SIZEOF_STRUCT_TV32
+import com.zaxxer.ping.impl.SOCK_DGRAM
+import com.zaxxer.ping.impl.SOL_SOCKET
+import com.zaxxer.ping.impl.SO_REUSEPORT
+import com.zaxxer.ping.impl.SO_TIMESTAMP
+import com.zaxxer.ping.impl.SockAddr
+import com.zaxxer.ping.impl.Tv32
+import com.zaxxer.ping.impl.htons
+import com.zaxxer.ping.impl.icmpCksum
+import com.zaxxer.ping.impl.isBSD
+import com.zaxxer.ping.impl.libc
+import com.zaxxer.ping.impl.ntohs
+import com.zaxxer.ping.impl.posix
+import com.zaxxer.ping.impl.runtime
 import com.zaxxer.ping.impl.util.dumpBuffer
 import it.unimi.dsi.fastutil.shorts.Short2ObjectLinkedOpenHashMap
 import jnr.constants.platform.Errno
 import jnr.ffi.Pointer
 import jnr.ffi.Struct
 import jnr.ffi.byref.IntByReference
-import jnr.posix.CmsgHdr
 import jnr.posix.MsgHdr
 import jnr.posix.Timeval
 import java.lang.Exception
-import java.lang.System.currentTimeMillis
 import java.net.Inet4Address
 import java.net.InetAddress
 import java.nio.ByteBuffer
 import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit.MICROSECONDS
+import java.util.concurrent.TimeUnit.MILLISECONDS
+import java.util.concurrent.TimeUnit.NANOSECONDS
+import java.util.concurrent.TimeUnit.SECONDS
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -43,6 +79,7 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 
 const val DEFAULT_TIMEOUT_MS = 1000L
+const val DEFAULT_TIMEOUT_USEC = 1000 * DEFAULT_TIMEOUT_MS
 const val BUFFER_SIZE = 128L
 
 data class PingTarget(val inetAddress : InetAddress, private val timeoutMs : Long = DEFAULT_TIMEOUT_MS) {
@@ -50,10 +87,8 @@ data class PingTarget(val inetAddress : InetAddress, private val timeoutMs : Lon
    internal var sequence = 0.toShort()
    internal val sockAddr : SockAddr
    internal val isIPv4 : Boolean
+   internal var timestampNs : Long = 0L
    internal var timeout = 0L
-      set(value) {
-         field = value + timeoutMs
-      }
 
    init {
       if (inetAddress is Inet4Address) {
@@ -63,7 +98,6 @@ data class PingTarget(val inetAddress : InetAddress, private val timeoutMs : Lon
          }
          else {
             sockAddr = LinuxSockAddr4()
-            // sockAddr.sin_addr.set(inAddr)
          }
       }
       else {  // IPv6
@@ -71,14 +105,17 @@ data class PingTarget(val inetAddress : InetAddress, private val timeoutMs : Lon
          error("Not implemented")
       }
    }
+
+   internal fun timestamp(epochSecs : Long, epochUsecs : Long) {
+      timestampNs = epochSecsUsecsToNanos(epochSecs, epochUsecs)
+      timeout = timestampNs + MILLISECONDS.toNanos(timeoutMs)
+   }
 }
 
 interface PingResponseHandler {
-   fun onResponse(pingTarget : PingTarget, rtt : Double, bytes : Int, seq : Int)
+   fun onResponse(pingTarget : PingTarget, responseTimeSec : Double, byteCount : Int, seq : Int)
 
    fun onTimeout(pingTarget : PingTarget)
-
-   fun onError(pingTarget : PingTarget, message : String)
 }
 
 class IcmpPinger(private val responseHandler : PingResponseHandler) {
@@ -96,13 +133,13 @@ class IcmpPinger(private val responseHandler : PingResponseHandler) {
    private lateinit var socketBufferPointer : Pointer
    private lateinit var outpacketPointer : Pointer
 
+   private lateinit var nowTimeval : Timeval
+
    private lateinit var sendTv32 : Tv32
-   private lateinit var sendIcmp : Icmp
-
+   private lateinit var icmp : Icmp
+   private lateinit var recvIp : Ip
    private lateinit var msgHdr : MsgHdr
-   private lateinit var cmsgHdr : CmsgHdr
 
-   // private val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS")
    private var fd4 : Int = 0
    private var fd6 : Int = 0
    private val pipefd = IntArray(2)
@@ -116,10 +153,6 @@ class IcmpPinger(private val responseHandler : PingResponseHandler) {
    }
 
    init {
-      // Better handled by altering the OS default rcvbuf size
-      // val rcvbuf = IntByReference(2048)
-      // libc.setsockopt(fd, SOL_SOCKET, SO_RCVBUF, rcvbuf, rcvbuf.nativeSize(runtime))
-
       pipefd[0] = -1
       pipefd[1] = -1
       libc.pipe(pipefd)
@@ -149,12 +182,12 @@ class IcmpPinger(private val responseHandler : PingResponseHandler) {
 
       val timeoutTimeval = posix.allocateTimeval()
       val infinite : Timeval? = null
-      var timeVal: Timeval? = infinite
+      var selectTimeout: Timeval? = infinite
 
       var noopLoops = 0
       while (running) {
          val nfds = maxOf(maxOf(fd4, fd4), pipefd[0]) + 1
-         val rc = libc.select(nfds, readSetPtr, writeSetPtr, null /*errorSet*/, timeVal)
+         val rc = libc.select(nfds, readSetPtr, writeSetPtr, null /*errorSet*/, selectTimeout)
          if (rc < 0) {
             println("select() returned errno ${posix.errno()}")
             break
@@ -162,25 +195,22 @@ class IcmpPinger(private val responseHandler : PingResponseHandler) {
 
          if (FD_ISSET(pipefd[0], readSet)) wakeupReceived()
 
-         val now = currentTimeMillis()
+         posix.gettimeofday(nowTimeval)
 
          if (rc > 0) {
-            if (FD_ISSET(fd4, writeSet)) processPending(pending4Pings, fd4, now)
-            if (FD_ISSET(fd6, writeSet)) processPending(pending4Pings, fd6, now)
+            if (FD_ISSET(fd4, writeSet)) processSends(pending4Pings, fd4, nowTimeval)
+            if (FD_ISSET(fd6, writeSet)) processSends(pending4Pings, fd6, nowTimeval)
 
-            if (FD_ISSET(fd4, readSet)) processWaiting(fd4)
-            if (FD_ISSET(fd6, readSet)) processWaiting(fd6)
+            if (FD_ISSET(fd4, readSet)) processReceives(fd4)
+            if (FD_ISSET(fd6, readSet)) processReceives(fd6)
          }
 
-         val next4timeoutMs = processTimeouts(waitingTarget4Map, now)
-         val next6timeoutMs = processTimeouts(waitingTarget6Map, now)
-         val nextTimeoutMs = minOf(next4timeoutMs, next6timeoutMs)
+         val next4timeoutUsec = processTimeouts(waitingTarget4Map, nowTimeval)
+         val next6timeoutUsec = processTimeouts(waitingTarget6Map, nowTimeval)
+         val nextTimeoutUsec = maxOf(minOf(next4timeoutUsec, next6timeoutUsec), 500)
 
-         // must be reset each time because select() on Linux modifies it
-         val timeoutSecs = nextTimeoutMs / 1000L
-         val timeoutUsecs = (nextTimeoutMs % 1000) * 1000L
-         timeoutTimeval.sec(timeoutSecs)
-         timeoutTimeval.usec(timeoutUsecs)
+         timeoutTimeval.sec(nextTimeoutUsec / 1_000_000L)
+         timeoutTimeval.usec(nextTimeoutUsec % 1_000_000L)
 
          if (DEBUG) {
             println("   Pending ping count ${pending4Pings.size + pending6Pings.size}")
@@ -199,13 +229,17 @@ class IcmpPinger(private val responseHandler : PingResponseHandler) {
          if (isPending6writes) FD_SET(fd6, writeSet)
 
          if (isPending4reads || isPending6reads || isPending4writes || isPending6writes) {
-            timeVal = timeoutTimeval
+            selectTimeout = timeoutTimeval
             noopLoops = 0
          }
          else {
             if (noopLoops++ > 10) {
                closeSockets()
-               timeVal = infinite
+               selectTimeout = infinite
+            }
+            else {
+               timeoutTimeval.sec(1)
+               timeoutTimeval.usec(0)
             }
          }
       }
@@ -220,21 +254,21 @@ class IcmpPinger(private val responseHandler : PingResponseHandler) {
       wakeup()
    }
 
-   fun isPending() = pending4Pings.isNotEmpty() || pending6Pings.isNotEmpty() || waitingTarget4Map.isNotEmpty() || waitingTarget6Map.isNotEmpty()
+   fun isPendingWork() = pending4Pings.isNotEmpty() || pending6Pings.isNotEmpty() || waitingTarget4Map.isNotEmpty() || waitingTarget6Map.isNotEmpty()
 
    /**********************************************************************************************
     *                                     Private Methods
     */
 
-   private fun processPending(pendingPings : LinkedBlockingQueue<PingTarget>, fd : Int, now : Long) {
-      val epochSecs = now / 1000L
-      val epochUsecs = (now % 1000L) * 1000L
+   private fun processSends(pendingPings : LinkedBlockingQueue<PingTarget>, fd : Int, timeVal : Timeval) {
+      val epochSecs = timeVal.sec()
+      val epochUsecs = timeVal.usec()
 
       while (pendingPings.isNotEmpty()) {
-         val pingActor = pendingPings.peek()
-         if (sendIcmp(pingActor, fd, epochSecs, epochUsecs)) {
+         val pingTarget = pendingPings.peek()
+         if (sendIcmp(pingTarget, fd, epochSecs, epochUsecs)) {
             pendingPings.take()
-            waitingTarget4Map.put(pingActor.id, pingActor)
+            waitingTarget4Map.put(pingTarget.id, pingTarget)
          }
          else {
             break
@@ -242,23 +276,25 @@ class IcmpPinger(private val responseHandler : PingResponseHandler) {
       }
    }
 
-   private fun processWaiting(fd : Int) {
+   private fun processReceives(fd : Int) {
       do {
          val more = recvIcmp(fd) // read and lookup actor id in map
       } while (more)
    }
 
-   private fun processTimeouts(targets : Short2ObjectLinkedOpenHashMap<PingTarget>, now : Long) : Long {
-      if (targets.isEmpty()) return DEFAULT_TIMEOUT_MS
+   private fun processTimeouts(targets : Short2ObjectLinkedOpenHashMap<PingTarget>, timeVal : Timeval) : Long {
+      if (targets.isEmpty()) return DEFAULT_TIMEOUT_USEC
+
+      val now = timeValToNanos(timeVal)
 
       // Optimization to avoid creation if iterator if nothing is ready to timeout
       val firstTimeout = targets.get(targets.firstShortKey()).timeout
-      if (now < firstTimeout) return firstTimeout - now
+      if (now < firstTimeout) return NANOSECONDS.toMicros(firstTimeout - now)
 
       val iterator = targets.values.iterator()
       while (iterator.hasNext()) {
          val pingTarget = iterator.next()
-         if (now < pingTarget.timeout) pingTarget.timeout - now
+         if (now < pingTarget.timeout) return NANOSECONDS.toMicros(pingTarget.timeout - now)
 
          try {
             responseHandler.onTimeout(pingTarget)
@@ -271,37 +307,38 @@ class IcmpPinger(private val responseHandler : PingResponseHandler) {
          }
       }
 
-      return DEFAULT_TIMEOUT_MS
+      return DEFAULT_TIMEOUT_USEC
    }
 
    private fun sendIcmp(pingTarget : PingTarget, fd : Int, epochSecs : Long, epochUsecs : Long) : Boolean {
-      prebuiltBufferPointer.transferFrom(0, socketBufferPointer, 0, BUFFER_SIZE)
+      prebuiltBufferPointer.transferTo(0, socketBufferPointer, 0, BUFFER_SIZE)
+
+      val seq = pingTarget.sequence++
 
       sendTv32.tv32_sec.set(epochSecs)
       sendTv32.tv32_usec.set(epochUsecs)
 
-      val seq = pingTarget.sequence++
-      sendIcmp.icmp_hun.ih_idseq.icd_seq.set(htons(seq))
-      sendIcmp.icmp_hun.ih_idseq.icd_id.set(htons(pingTarget.id))
-      sendIcmp.icmp_type.set(ICMP_ECHO)
-      sendIcmp.icmp_code.set(0)
-      sendIcmp.icmp_cksum.set(0)
+      icmp.useMemory(outpacketPointer)
+      icmp.icmp_hun.ih_idseq.icd_seq.set(htons(seq))
+      icmp.icmp_hun.ih_idseq.icd_id.set(htons(pingTarget.id))
+      icmp.icmp_type.set(ICMP_ECHO)
+      icmp.icmp_code.set(0)
+      icmp.icmp_cksum.set(0)
 
-      val packetSize = ICMP_MINLEN + DEFAULT_DATALEN
+      val cksum = icmpCksum(outpacketPointer, SEND_PACKET_SIZE)
+      icmp.icmp_cksum.set(htons(cksum.toShort()))
 
-      val cksum = icmpCksum(outpacketPointer, packetSize)
-      sendIcmp.icmp_cksum.set(htons(cksum.toShort()))
+      if (DEBUG) dumpBuffer(message = "Send buffer:", buffer = socketBuffer)
 
-      // dumpBuffer(message = "Send buffer:", buffer = outpackBuffer)
+      pingTarget.timestamp(epochSecs, epochUsecs)
 
-      val rc = libc.sendto(fd, outpacketPointer, packetSize, 0, pingTarget.sockAddr, Struct.size(pingTarget.sockAddr))
-      if (rc == packetSize) {
-         pingTarget.timeout = currentTimeMillis()
+      val rc = libc.sendto(fd, outpacketPointer, SEND_PACKET_SIZE, 0, pingTarget.sockAddr, Struct.size(pingTarget.sockAddr))
+      if (rc == SEND_PACKET_SIZE) {
          if (DEBUG) println("   ICMP packet(seq=$seq) send to ${pingTarget.inetAddress} successful")
          return true
       }
       else {
-         if (DEBUG) println("   Error: icmp sendto() to ${pingTarget.inetAddress} for seq=$seq returned $rc")
+         if (DEBUG) println("   icmp sendto() to ${pingTarget.inetAddress} for seq=$seq returned $rc")
          return false
       }
    }
@@ -312,39 +349,21 @@ class IcmpPinger(private val responseHandler : PingResponseHandler) {
       if (cc > 0) {
          if (DEBUG) dumpBuffer("Ping response", socketBuffer)
 
-         val ip = Ip()
-         ip.useMemory(socketBufferPointer)
-         val headerLen = (ip.ip_vhl.get().toInt() and 0x0f shl 2)
+         val headerLen = (recvIp.ip_vhl.get().toInt() and 0x0f shl 2)
          cc -= headerLen
 
-         val icmp = Icmp()
          icmp.useMemory(socketBufferPointer.slice(headerLen.toLong()))
          val id = ntohs(icmp.icmp_hun.ih_idseq.icd_id.get().toShort())
          if (icmp.icmp_type.get() != ICMP_ECHOREPLY) {
             if (DEBUG) println("   ^ Opps, not our response.")
          }
          else {
-            //         var triptime : Double = 0.0
-            //         if (cc - ICMP_MINLEN >= SIZEOF_STRUCT_TIMEVAL) {
-            //            val tp = packetPointer.slice(headerLen.toLong() + icmp.icmp_dun.id_data.offset())
-            //            val tv1 = posix.allocateTimeval()
-            //            val tv1Pointer = runtime.memoryManager.newPointer(sendBuffer)
-            //            tv1.useMemory(tv1Pointer)
-            //            tp.transferTo(0, tv1Pointer, 0, SIZEOF_STRUCT_TV32.toLong())
-            //
-            //            val usec = tv32.tv32_usec.get() - tv1.usec()
-            //            if (usec < 0) {
-            //               tv32.tv32_sec.set(tv32.tv32_sec.get() - 1)
-            //               tv32.tv32_usec.set(usec + 1000000)
-            //            }
-            //            tv32.tv32_sec.set(tv32.tv32_sec.get() - tv1.sec())
-            //
-            //            triptime = (tv32.tv32_sec.get().toDouble()) * 1000.0 + (tv32.tv32_usec.get().toDouble()) / 1000.0
-            //         }
-
             val pingTarget : PingTarget? = waitingTarget4Map.remove(id)
             if (pingTarget != null) {
-               val triptime = 1.0 // (usElapsed.toDouble() / 1000.0)
+               posix.gettimeofday(nowTimeval)
+
+               val elapsedus = NANOSECONDS.toMicros(timeValToNanos(nowTimeval) - pingTarget.timestampNs)
+               val triptime = elapsedus.toDouble() / 1_000_000.0
                val seq = ntohs(icmp.icmp_hun.ih_idseq.icd_seq.shortValue())
 
                responseHandler.onResponse(pingTarget, triptime, cc, seq.toInt())
@@ -361,6 +380,18 @@ class IcmpPinger(private val responseHandler : PingResponseHandler) {
       return cc > 0
    }
 
+   private fun wakeup() = libc.write(pipefd[1], ByteArray(1), 1)
+
+   private fun wakeupReceived() {
+      while (libc.read(pipefd[0], ByteArray(1), 1) > 0) {
+         // drain the wakeup pipe
+      }
+
+      if (fd4 == 0) {
+         createSockets()
+      }
+   }
+
    private fun createSockets() {
       fd4 = libc.socket(PF_INET, SOCK_DGRAM, IPPROTO_ICMP)
       fd6 = libc.socket(PF_INET6, SOCK_DGRAM, IPPROTO_ICMPV6)
@@ -371,6 +402,10 @@ class IcmpPinger(private val responseHandler : PingResponseHandler) {
 
       libc.setsockopt(fd4, SOL_SOCKET, SO_REUSEPORT, on, on.nativeSize(runtime))
       libc.setsockopt(fd6, SOL_SOCKET, SO_REUSEPORT, on, on.nativeSize(runtime))
+
+      // Better handled by altering the OS default rcvbuf size
+      // val rcvbuf = IntByReference(2048)
+      // libc.setsockopt(fd, SOL_SOCKET, SO_RCVBUF, rcvbuf, rcvbuf.nativeSize(runtime))
 
       setNonBlocking(fd4)
       setNonBlocking(fd6)
@@ -387,18 +422,6 @@ class IcmpPinger(private val responseHandler : PingResponseHandler) {
       val flags4 = libc.fcntl(fd, F_GETFL, 0) or O_NONBLOCK
       libc.fcntl(fd, F_SETFL, flags4)
    }
-
-   private fun wakeupReceived() {
-      while (libc.read(pipefd[0], ByteArray(1), 1) > 0) {
-         // drain the wakeup pipe
-      }
-
-      if (fd4 == 0) {
-         createSockets()
-      }
-   }
-
-   private fun wakeup() = libc.write(pipefd[1], ByteArray(1), 1)
 
    private fun resetFdSets() {
       FD_ZERO(readSet)
@@ -417,20 +440,31 @@ class IcmpPinger(private val responseHandler : PingResponseHandler) {
 
       val tmpBuffer = prebuiltBuffer.duplicate()
       tmpBuffer.position(SIZEOF_STRUCT_IP + ICMP_MINLEN + SIZEOF_STRUCT_TV32)
-      for (i in SIZEOF_STRUCT_TV32..DEFAULT_DATALEN)
+      for (i in SIZEOF_STRUCT_TV32 until DEFAULT_DATALEN)
          tmpBuffer.put(i.toByte())
+
+      icmp = Icmp()
+      icmp.useMemory(outpacketPointer)
 
       sendTv32 = Tv32()
       sendTv32.useMemory(outpacketPointer.slice(ICMP_MINLEN.toLong(), SIZEOF_STRUCT_TV32.toLong()))
 
-      sendIcmp = Icmp()
-      sendIcmp.useMemory(outpacketPointer)
+      recvIp = Ip()
+      recvIp.useMemory(socketBufferPointer)
 
       msgHdr = posix.allocateMsgHdr()
       msgHdr.iov = arrayOf(socketBuffer)
 
-      cmsgHdr = msgHdr.allocateControl(SIZEOF_STRUCT_TIMEVAL)
+      nowTimeval = posix.allocateTimeval()
    }
+}
+
+private fun timeValToNanos(timeVal : Timeval) : Long {
+   return epochSecsUsecsToNanos(timeVal.sec(), timeVal.usec())
+}
+
+private fun epochSecsUsecsToNanos(epochSecs : Long, epochUsecs : Long) : Long {
+   return SECONDS.toNanos(epochSecs) + MICROSECONDS.toNanos(epochUsecs)
 }
 
 val DEBUG = java.lang.Boolean.getBoolean("com.zaxxer.ping.debug")

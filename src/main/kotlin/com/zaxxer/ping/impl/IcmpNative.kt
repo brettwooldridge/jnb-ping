@@ -96,6 +96,7 @@ class LinuxSockAddr6 : SockAddr6() {
 const val ICMP_MINLEN = 8
 const val IP_MAXPACKET = 65535
 const val DEFAULT_DATALEN = 56
+const val SEND_PACKET_SIZE = ICMP_MINLEN + DEFAULT_DATALEN
 
 val PF_INET = AF_INET.intValue()
 val PF_INET6 = AF_INET6.intValue()
