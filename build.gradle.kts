@@ -1,6 +1,6 @@
 import org.gradle.jvm.tasks.Jar
 import org.jetbrains.dokka.gradle.DokkaTask
-import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+import org.jetbrains.kotlin.gradle.tasks.*
 
 val kotlin_version : String by extra
 
@@ -14,12 +14,13 @@ buildscript {
    var kotlin_version : String by extra
    kotlin_version = "1.1.51"
    repositories {
+      mavenCentral()
       jcenter()
    }
 
    dependencies {
       classpath("org.jetbrains.dokka:dokka-gradle-plugin:0.9.15")
-      classpath(kotlinModule("gradle-plugin", kotlin_version))
+      classpath(kotlin("gradle-plugin", kotlin_version))
    }
 }
 
@@ -32,19 +33,19 @@ apply {
 
 plugins {
    `build-scan`
-   `maven-publish`
-   kotlin("jvm", "1.1.4-3")
+   signing
+   `kotlin-dsl`
+//   kotlin("jvm", kotlin_version)
 }
 
 group = "com.zaxxer"
 version = "0.9.0"
 
 dependencies {
-   implementation(kotlin("stdlib", "1.1.4-3"))
+   implementation(kotlin("stdlib", kotlin_version))
    compile("com.github.jnr:jnr-posix:3.0.41")
    compile("it.unimi.dsi:fastutil:8.1.0")
    testImplementation("junit:junit:4.12")
-   compile(kotlinModule("stdlib-jre8", kotlin_version))
 }
 
 buildScan {
@@ -75,18 +76,43 @@ val sourcesJar by tasks.creating(Jar::class) {
    from(java.sourceSets["main"].allSource)
 }
 
-publishing {
-   publications {
-      create("default", MavenPublication::class.java) {
-         from(components["java"])
 
-         artifact(sourcesJar)
-         artifact(dokkaJar)
-      }
-   }
-   repositories {
-      maven {
-         url "https://oss.sonatype.org/service/local/staging/deploy/maven2"
+tasks {
+   logger.info("userName: " + project.property("username"))
+   "uploadArchives"(Upload::class) {
+      repositories {
+         withConvention(MavenRepositoryHandlerConvention::class) {
+            mavenDeployer {
+               "beforeDeployment" {
+                  if (signing.isRequired)
+                     signing.signPom(delegate as MavenDeployment)
+               }
+
+               withGroovyBuilder {
+                  "repository"("url" to uri("https://oss.sonatype.org/service/local/staging/deploy/maven2/")) {
+                     "authentication"("userName" to project.property("username"), "password" to project.property("password"))
+                  }
+                  "snapshotRepository"("url" to uri("https://oss.sonatype.org/content/repositories/snapshots"))
+               }
+
+               pom.project {
+                  withGroovyBuilder {
+                     "parent" {
+                        "groupId"("org.gradle")
+                        "artifactId"("kotlin-dsl")
+                        "version"("1.0")
+                     }
+                     "licenses" {
+                        "license" {
+                           "name"("The Apache Software License, Version 2.0")
+                           "url"("http://www.apache.org/licenses/LICENSE-2.0.txt")
+                           "distribution"("repo")
+                        }
+                     }
+                  }
+               }
+            }
+         }
       }
    }
 }
