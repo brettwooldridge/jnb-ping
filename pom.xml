@@ -65,10 +65,6 @@
       <version>9</version>
    </parent>
 
-   <prerequisites>
-      <maven>3.3.9</maven>
-   </prerequisites>
-
    <repositories>
       <repository>
          <id>oss-sonatype</id>
@@ -266,6 +262,27 @@
                      </manifest>
                   </archive>
                </configuration>
+            </plugin>
+
+            <plugin>
+               <groupId>org.apache.maven.plugins</groupId>
+               <artifactId>maven-enforcer-plugin</artifactId>
+               <version>3.0.0-M1</version>
+               <executions>
+                  <execution>
+                     <id>enforce-maven</id>
+                     <goals>
+                        <goal>enforce</goal>
+                     </goals>
+                     <configuration>
+                        <rules>
+                           <requireMavenVersion>
+                              <version>3.0</version>
+                           </requireMavenVersion>
+                        </rules>
+                     </configuration>
+                  </execution>
+               </executions>
             </plugin>
 
             <plugin>
