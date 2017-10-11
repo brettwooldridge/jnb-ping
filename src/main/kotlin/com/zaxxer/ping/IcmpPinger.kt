@@ -97,7 +97,7 @@ data class PingTarget(val inetAddress : InetAddress, private val timeoutMs : Lon
             sockAddr = BSDSockAddr4(inetAddress)
          }
          else {
-            sockAddr = LinuxSockAddr4()
+            sockAddr = LinuxSockAddr4(inetAddress)
          }
       }
       else {  // IPv6

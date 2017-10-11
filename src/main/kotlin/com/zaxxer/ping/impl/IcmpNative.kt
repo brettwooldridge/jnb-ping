@@ -74,13 +74,16 @@ class BSDSockAddr6 : SockAddr6() {
    }
 }
 
-class LinuxSockAddr4 : SockAddr() {
+class LinuxSockAddr4(address : Inet4Address) : SockAddr() {
    @field:JvmField val sin_family = Unsigned16()
    @field:JvmField val sin_port = Unsigned16()
    @field:JvmField val sin_addr = Unsigned32()
-   @field:JvmField protected val sin_zero = Padding(NativeType.SCHAR, 8)
+   @field:JvmField protected val sin_data = Padding(NativeType.SCHAR, 8)
 
    init {
+      val bytes = address.address
+      val inAddr : Int = (bytes[3].toInt() and 0xff shl 24) or (bytes[2].toInt() and 0xff shl 16) or (bytes[1].toInt() and 0xff shl 8) or (bytes[0].toInt() and 0xff)
+      sin_addr.set(inAddr)
       sin_family.set(PF_INET)
    }
 }

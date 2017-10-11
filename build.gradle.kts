@@ -1,6 +1,9 @@
 import org.gradle.jvm.tasks.Jar
 import org.jetbrains.dokka.gradle.DokkaTask
 import org.jetbrains.kotlin.gradle.tasks.*
+import org.gradle.api.publish.maven.plugins.*
+import org.gradle.kotlin.dsl.get
+import org.gradle.kotlin.dsl.invoke
 
 val kotlin_version : String by extra
 
@@ -25,9 +28,10 @@ buildscript {
 }
 
 apply {
-   plugin("org.jetbrains.dokka")
    plugin("kotlin")
    plugin("maven")
+   plugin("maven-publish")
+   plugin("org.jetbrains.dokka")
    plugin("signing")
 }
 
@@ -35,6 +39,7 @@ plugins {
    `build-scan`
    signing
    `kotlin-dsl`
+   `maven-publish`
 //   kotlin("jvm", kotlin_version)
 }
 
@@ -76,23 +81,38 @@ val sourcesJar by tasks.creating(Jar::class) {
    from(java.sourceSets["main"].allSource)
 }
 
+artifacts {
+   listOf(dokkaJar, sourcesJar)
+}
 
 tasks {
    logger.info("userName: " + project.property("username"))
    "uploadArchives"(Upload::class) {
+
       repositories {
          withConvention(MavenRepositoryHandlerConvention::class) {
-            mavenDeployer {
-               "beforeDeployment" {
-                  if (signing.isRequired)
-                     signing.signPom(delegate as MavenDeployment)
+            publishing {
+               (publications) {
+                  "mavenSources"(MavenPublication::class) {
+                     from(components["java"])
+                     artifact(dokkaJar)
+                     artifact(sourcesJar)
+                  }
                }
+            }
 
+            mavenDeployer {
                withGroovyBuilder {
                   "repository"("url" to uri("https://oss.sonatype.org/service/local/staging/deploy/maven2/")) {
                      "authentication"("userName" to project.property("username"), "password" to project.property("password"))
                   }
-                  "snapshotRepository"("url" to uri("https://oss.sonatype.org/content/repositories/snapshots"))
+                  "snapshotRepository"("url" to uri("https://oss.sonatype.org/content/repositories/snapshots/")) {
+                     "authentication"("userName" to project.property("username"), "password" to project.property("password"))
+                  }
+                  "beforeDeployment" {
+                     if (signing.isRequired)
+                        signing.signPom(delegate as MavenDeployment)
+                  }
                }
 
                pom.project {
@@ -102,6 +122,13 @@ tasks {
                         "artifactId"("kotlin-dsl")
                         "version"("1.0")
                      }
+
+                     "scm" {
+                        "connection"("scm:git:https://github.com/brettwooldridge/jnb-ping")
+                        "developerConnection"("scm:git:https://github.com/brettwooldridge/jnb-ping")
+                        "url"("https://github.com/brettwooldridge/jnb-ping")
+                     }
+
                      "licenses" {
                         "license" {
                            "name"("The Apache Software License, Version 2.0")
