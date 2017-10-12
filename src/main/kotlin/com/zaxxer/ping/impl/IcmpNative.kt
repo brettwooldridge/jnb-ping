@@ -115,7 +115,7 @@ val SOL_SOCKET = if (isBSD) 0xffff else 1
 
 val SO_TIMESTAMP = if (isBSD) 0x0400 else 29
 val SO_RCVBUF = if (isBSD) 0x1002 else 8
-val SO_REUSEPORT = if (isBSD) 0x0200 else 15
+val SO_REUSEPORT = if (isBSD) 0x0200 else jnr.constants.platform.SocketOption.SO_REUSEADDR.intValue()
 val SCM_TIMESTAMP = if (isBSD) 0x02 else SO_TIMESTAMP
 
 val F_GETFL = jnr.constants.platform.Fcntl.F_GETFL.intValue()
