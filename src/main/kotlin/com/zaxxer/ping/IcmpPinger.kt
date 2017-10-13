@@ -82,7 +82,10 @@ const val DEFAULT_TIMEOUT_MS = 1000L
 const val DEFAULT_TIMEOUT_USEC = 1000 * DEFAULT_TIMEOUT_MS
 const val BUFFER_SIZE = 128L
 
-data class PingTarget(val inetAddress : InetAddress, private val timeoutMs : Long = DEFAULT_TIMEOUT_MS) {
+data class PingTarget @JvmOverloads constructor(val inetAddress : InetAddress,
+                                                val userObject : Any? = null,
+                                                private val timeoutMs : Long = DEFAULT_TIMEOUT_MS) {
+
    internal val id = (ID_SEQUENCE.getAndIncrement() % 0xffff).toShort()
    internal var sequence : Short = 0
    internal val sockAddr : SockAddr
@@ -328,8 +331,12 @@ class IcmpPinger(private val responseHandler : PingResponseHandler) {
       icmp.icmp_code.set(0)
       icmp.icmp_cksum.set(0)
 
-      val cksum = icmpCksum(outpacketPointer, SEND_PACKET_SIZE)
-      icmp.icmp_cksum.set(htons(cksum.toShort()))
+      // In BSD we are responsible for the entire payload, including checksum.  Linux mucks with the payload (replacing
+      // the identity field, and therefore recalculates the checksum (so don't waste our time doing it here).
+      if (isBSD) {
+         val cksum = icmpCksum(outpacketPointer, SEND_PACKET_SIZE)
+         icmp.icmp_cksum.set(htons(cksum.toShort()))
+      }
 
       if (DEBUG) dumpBuffer(message = "Send buffer:", buffer = socketBuffer)
 
@@ -430,11 +437,6 @@ class IcmpPinger(private val responseHandler : PingResponseHandler) {
       fd6 = 0
    }
 
-   private fun setNonBlocking(fd : Int) {
-      val flags4 = libc.fcntl(fd, F_GETFL, 0) or O_NONBLOCK
-      libc.fcntl(fd, F_SETFL, flags4)
-   }
-
    private fun resetFdSets() {
       FD_ZERO(readSet)
       FD_ZERO(writeSet)
@@ -469,6 +471,11 @@ class IcmpPinger(private val responseHandler : PingResponseHandler) {
 
       nowTimeval = posix.allocateTimeval()
    }
+}
+
+private fun setNonBlocking(fd : Int) {
+   val flags4 = libc.fcntl(fd, F_GETFL, 0) or O_NONBLOCK
+   libc.fcntl(fd, F_SETFL, flags4)
 }
 
 private fun timeValToNanos(timeVal : Timeval) : Long {
