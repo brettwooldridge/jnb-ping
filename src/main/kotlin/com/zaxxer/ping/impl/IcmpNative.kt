@@ -22,6 +22,9 @@
 
 package com.zaxxer.ping.impl
 
+import com.zaxxer.ping.impl.NativeStatic.Companion.isBSD
+import com.zaxxer.ping.impl.NativeStatic.Companion.posix
+import com.zaxxer.ping.impl.NativeStatic.Companion.runtime
 import jnr.constants.platform.AddressFamily.AF_INET
 import jnr.constants.platform.AddressFamily.AF_INET6
 import jnr.ffi.*
@@ -37,11 +40,15 @@ import jnr.posix.Timeval
 import java.net.Inet4Address
 import java.nio.ByteBuffer
 
-val runtime : jnr.ffi.Runtime = jnr.ffi.Runtime.getSystemRuntime()!!
-val platform : Platform = Platform.getNativePlatform()
-val isBSD = platform.isBSD
-val posix : POSIX = POSIXFactory.getNativePOSIX()
-val libc : LibC = LibraryLoader.create(LibC::class.java).load(platform.standardCLibraryName)
+internal class NativeStatic {
+   companion object {
+      @JvmStatic val runtime : jnr.ffi.Runtime = jnr.ffi.Runtime.getSystemRuntime()!!
+      @JvmStatic val platform : Platform = Platform.getNativePlatform()
+      @JvmStatic val isBSD = platform.isBSD
+      @JvmStatic val posix : POSIX = POSIXFactory.getNativePOSIX()
+      @JvmStatic val libc : LibC = LibraryLoader.create(LibC::class.java).load(platform.standardCLibraryName)
+   }
+}
 
 open class SockAddr : Struct(runtime)
 open class SockAddr6 : SockAddr()
@@ -183,6 +190,8 @@ class Fd_set : Struct(runtime) {
    }
 }
 
+val SIZEOF_FD_SET = Struct.size(Fd_set()).toLong()
+
 fun FD_SET(fd : Int, fd_set : Fd_set) {
    // ((fd_set*)->fds_bits[ (unsigned long)__fd / 32 ] |= ((__int32_t) (((unsigned long) 1) << ((unsigned long) __fd % 32))))
    val ndx = fd / 32
@@ -201,11 +210,8 @@ fun FD_ISSET(fd : Int, fd_set : Fd_set) : Boolean {
    return currvalue and andValue != 0
 }
 
-fun FD_ZERO(fd_set : Fd_set) {
-   for (bits in fd_set.fds_bits) {
-      bits.set(0L)
-   }
-}
+fun FD_ZERO(fd_set : Fd_set) = Struct.getMemory(fd_set).setMemory(0, SIZEOF_FD_SET, 0)
+
 
 /*****************************************************************************
  *                              ICMP Definitions

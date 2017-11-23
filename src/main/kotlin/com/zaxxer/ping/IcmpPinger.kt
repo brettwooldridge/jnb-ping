@@ -17,41 +17,11 @@
 package com.zaxxer.ping
 
 import com.zaxxer.ping.IcmpPinger.Companion.ID_SEQUENCE
-import com.zaxxer.ping.impl.BSDSockAddr4
-import com.zaxxer.ping.impl.DEFAULT_DATALEN
-import com.zaxxer.ping.impl.FD_ISSET
-import com.zaxxer.ping.impl.FD_SET
-import com.zaxxer.ping.impl.FD_ZERO
-import com.zaxxer.ping.impl.F_GETFL
-import com.zaxxer.ping.impl.F_SETFL
-import com.zaxxer.ping.impl.Fd_set
-import com.zaxxer.ping.impl.ICMP_ECHO
-import com.zaxxer.ping.impl.ICMP_ECHOREPLY
-import com.zaxxer.ping.impl.ICMP_MINLEN
-import com.zaxxer.ping.impl.IPPROTO_ICMP
-import com.zaxxer.ping.impl.IPPROTO_ICMPV6
-import com.zaxxer.ping.impl.Icmp
-import com.zaxxer.ping.impl.Ip
-import com.zaxxer.ping.impl.LinuxSockAddr4
-import com.zaxxer.ping.impl.O_NONBLOCK
-import com.zaxxer.ping.impl.PF_INET
-import com.zaxxer.ping.impl.PF_INET6
-import com.zaxxer.ping.impl.SEND_PACKET_SIZE
-import com.zaxxer.ping.impl.SIZEOF_STRUCT_IP
-import com.zaxxer.ping.impl.SIZEOF_STRUCT_TV32
-import com.zaxxer.ping.impl.SOCK_DGRAM
-import com.zaxxer.ping.impl.SOL_SOCKET
-import com.zaxxer.ping.impl.SO_REUSEPORT
-import com.zaxxer.ping.impl.SO_TIMESTAMP
-import com.zaxxer.ping.impl.SockAddr
-import com.zaxxer.ping.impl.Tv32
-import com.zaxxer.ping.impl.htons
-import com.zaxxer.ping.impl.icmpCksum
-import com.zaxxer.ping.impl.isBSD
-import com.zaxxer.ping.impl.libc
-import com.zaxxer.ping.impl.ntohs
-import com.zaxxer.ping.impl.posix
-import com.zaxxer.ping.impl.runtime
+import com.zaxxer.ping.impl.*
+import com.zaxxer.ping.impl.NativeStatic.Companion.isBSD
+import com.zaxxer.ping.impl.NativeStatic.Companion.libc
+import com.zaxxer.ping.impl.NativeStatic.Companion.posix
+import com.zaxxer.ping.impl.NativeStatic.Companion.runtime
 import com.zaxxer.ping.impl.util.dumpBuffer
 import it.unimi.dsi.fastutil.shorts.Short2ObjectLinkedOpenHashMap
 import jnr.constants.platform.Errno
@@ -65,10 +35,8 @@ import java.net.Inet4Address
 import java.net.InetAddress
 import java.nio.ByteBuffer
 import java.util.concurrent.LinkedBlockingQueue
-import java.util.concurrent.TimeUnit.MICROSECONDS
-import java.util.concurrent.TimeUnit.MILLISECONDS
-import java.util.concurrent.TimeUnit.NANOSECONDS
-import java.util.concurrent.TimeUnit.SECONDS
+import java.util.concurrent.TimeUnit.*
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -81,6 +49,9 @@ import java.util.concurrent.atomic.AtomicInteger
 const val DEFAULT_TIMEOUT_MS = 1000L
 const val DEFAULT_TIMEOUT_USEC = 1000 * DEFAULT_TIMEOUT_MS
 const val BUFFER_SIZE = 128L
+const val PENDING_QUEUE_SIZE = 8192
+
+typealias FD = Int
 
 data class PingTarget @JvmOverloads constructor(val inetAddress : InetAddress,
                                                 val userObject : Any? = null,
@@ -96,11 +67,10 @@ data class PingTarget @JvmOverloads constructor(val inetAddress : InetAddress,
    init {
       if (inetAddress is Inet4Address) {
          isIPv4 = true
-         if (isBSD) {
-            sockAddr = BSDSockAddr4(inetAddress)
-         }
-         else {
-            sockAddr = LinuxSockAddr4(inetAddress)
+         sockAddr = if (isBSD) {
+            BSDSockAddr4(inetAddress)
+         } else {
+            LinuxSockAddr4(inetAddress)
          }
       }
       else {  // IPv6
@@ -126,8 +96,8 @@ class IcmpPinger(private val responseHandler : PingResponseHandler) {
    private val waitingTarget4Map = Short2ObjectLinkedOpenHashMap<PingTarget>()
    private val waitingTarget6Map = Short2ObjectLinkedOpenHashMap<PingTarget>()
 
-   private val pending4Pings = LinkedBlockingQueue<PingTarget>()
-   private val pending6Pings = LinkedBlockingQueue<PingTarget>()
+   private val pending4Pings = LinkedBlockingQueue<PingTarget>(PENDING_QUEUE_SIZE)
+   private val pending6Pings = LinkedBlockingQueue<PingTarget>(PENDING_QUEUE_SIZE)
 
    private lateinit var prebuiltBuffer : ByteBuffer
    private lateinit var socketBuffer : ByteBuffer
@@ -143,8 +113,9 @@ class IcmpPinger(private val responseHandler : PingResponseHandler) {
    private lateinit var recvIp : Ip
    private lateinit var msgHdr : MsgHdr
 
-   private var fd4 : Int = 0
-   private var fd6 : Int = 0
+   private val awoken = AtomicBoolean()
+   private var fd4 : FD = 0
+   private var fd6 : FD = 0
    private val pipefd = IntArray(2)
    private val readSet = Fd_set()
    private val writeSet = Fd_set()
@@ -156,6 +127,9 @@ class IcmpPinger(private val responseHandler : PingResponseHandler) {
 
       @JvmStatic
       internal val SEQUENCE_SEQUENCE = AtomicInteger(0xBABE)
+
+      @JvmStatic
+      internal val DEBUG = java.lang.Boolean.getBoolean("com.zaxxer.ping.debug")
    }
 
    init {
@@ -179,7 +153,9 @@ class IcmpPinger(private val responseHandler : PingResponseHandler) {
          pending6Pings.offer(pingTarget)
       }
 
-      wakeup()
+      if (awoken.compareAndSet(false, true)) {
+         wakeup()
+      }
    }
 
    fun runSelector() {
@@ -198,6 +174,8 @@ class IcmpPinger(private val responseHandler : PingResponseHandler) {
             println("select() returned errno ${posix.errno()}")
             break
          }
+
+         awoken.compareAndSet(true, false)
 
          if (FD_ISSET(pipefd[0], readSet)) wakeupReceived()
 
@@ -266,7 +244,7 @@ class IcmpPinger(private val responseHandler : PingResponseHandler) {
     *                                     Private Methods
     */
 
-   private fun processSends(pendingPings : LinkedBlockingQueue<PingTarget>, fd : Int, timeVal : Timeval) {
+   private fun processSends(pendingPings : LinkedBlockingQueue<PingTarget>, fd : FD, timeVal : Timeval) {
       val epochSecs = timeVal.sec()
       val epochUsecs = timeVal.usec()
 
@@ -282,7 +260,7 @@ class IcmpPinger(private val responseHandler : PingResponseHandler) {
       }
    }
 
-   private fun processReceives(fd : Int) {
+   private fun processReceives(fd : FD) {
       do {
          val more = recvIcmp(fd) // read and lookup actor id in map
       } while (more)
@@ -316,7 +294,7 @@ class IcmpPinger(private val responseHandler : PingResponseHandler) {
       return DEFAULT_TIMEOUT_USEC
    }
 
-   private fun sendIcmp(pingTarget : PingTarget, fd : Int, epochSecs : Long, epochUsecs : Long) : Boolean {
+   private fun sendIcmp(pingTarget : PingTarget, fd : FD, epochSecs : Long, epochUsecs : Long) : Boolean {
       prebuiltBufferPointer.transferTo(0, socketBufferPointer, 0, BUFFER_SIZE)
 
       pingTarget.sequence = (SEQUENCE_SEQUENCE.getAndIncrement() % 0xffff).toShort()
@@ -343,30 +321,24 @@ class IcmpPinger(private val responseHandler : PingResponseHandler) {
       pingTarget.timestamp(epochSecs, epochUsecs)
 
       val rc = libc.sendto(fd, outpacketPointer, SEND_PACKET_SIZE, 0, pingTarget.sockAddr, Struct.size(pingTarget.sockAddr))
-      if (rc == SEND_PACKET_SIZE) {
+      return if (rc == SEND_PACKET_SIZE) {
          if (DEBUG) println("   ICMP packet(seq=${pingTarget.sequence}) send to ${pingTarget.inetAddress} successful")
-         return true
+         true
       }
       else {
          if (DEBUG) println("   icmp sendto() to ${pingTarget.inetAddress} for seq=${pingTarget.sequence} returned $rc")
-         return false
+         false
       }
    }
 
-   private fun recvIcmp(fd : Int) : Boolean {
+   private fun recvIcmp(fd : FD) : Boolean {
 
       var cc = posix.recvmsg(fd, msgHdr, 0)
       if (cc > 0) {
          if (DEBUG) dumpBuffer("Ping response", socketBuffer)
 
-         val headerLen : Int
-         if (isBSD) {
-            headerLen = (recvIp.ip_vhl.get().toInt() and 0x0f shl 2)
-            cc -= headerLen
-         }
-         else {
-            headerLen = 0
-         }
+         val headerLen= if (isBSD) (recvIp.ip_vhl.get().toInt() and 0x0f shl 2) else 0
+         cc -= headerLen
 
          icmp.useMemory(socketBufferPointer.slice(headerLen.toLong()))
          if (icmp.icmp_type.get() != ICMP_ECHOREPLY) {
@@ -473,17 +445,11 @@ class IcmpPinger(private val responseHandler : PingResponseHandler) {
    }
 }
 
-private fun setNonBlocking(fd : Int) {
+private fun setNonBlocking(fd : FD) {
    val flags4 = libc.fcntl(fd, F_GETFL, 0) or O_NONBLOCK
    libc.fcntl(fd, F_SETFL, flags4)
 }
 
-private fun timeValToNanos(timeVal : Timeval) : Long {
-   return epochSecsUsecsToNanos(timeVal.sec(), timeVal.usec())
-}
+private fun timeValToNanos(timeVal : Timeval) = epochSecsUsecsToNanos(timeVal.sec(), timeVal.usec())
 
-private fun epochSecsUsecsToNanos(epochSecs : Long, epochUsecs : Long) : Long {
-   return SECONDS.toNanos(epochSecs) + MICROSECONDS.toNanos(epochUsecs)
-}
-
-val DEBUG = java.lang.Boolean.getBoolean("com.zaxxer.ping.debug")
+private fun epochSecsUsecsToNanos(epochSecs : Long, epochUsecs : Long) = SECONDS.toNanos(epochSecs) + MICROSECONDS.toNanos(epochUsecs)

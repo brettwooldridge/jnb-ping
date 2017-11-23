@@ -15,7 +15,7 @@ repositories {
 // Use of buildscript {} necessary due to https://github.com/Kotlin/dokka/issues/146
 buildscript {
    var kotlin_version : String by extra
-   kotlin_version = "1.1.51"
+   kotlin_version = "1.1.60"
    repositories {
       mavenCentral()
       jcenter()
@@ -147,8 +147,15 @@ tasks {
 val compileKotlin : KotlinCompile by tasks
 compileKotlin.kotlinOptions {
    jvmTarget = "1.8"
+   freeCompilerArgs = listOf(
+         "Xno-param-assertions",
+         "Xno-call-assertions",
+         "Xno-receiver-assertions"
+   )
 }
+
 val compileTestKotlin : KotlinCompile by tasks
 compileTestKotlin.kotlinOptions {
    jvmTarget = "1.8"
 }
+

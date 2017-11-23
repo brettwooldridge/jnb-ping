@@ -29,7 +29,6 @@
     </facet>
   </component>
   <component name="NewModuleRootManager" LANGUAGE_LEVEL="JDK_1_8">
-    <perl5 />
     <output url="file://$MODULE_DIR$/out/production/classes" />
     <exclude-output />
     <content url="file://$MODULE_DIR$/src/main">
@@ -42,7 +41,18 @@
     <orderEntry type="module-library">
       <library>
         <CLASSES>
-          <root url="jar://$USER_HOME$/.gradle/caches/4.3-20171004164220+0000/generated-gradle-jars/gradle-kotlin-dsl-extensions-0.12.0-SNAPSHOT-4.3-20171004164220+0000.jar!/" />
+          <root url="jar://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/lib/gradle-installation-beacon-4.3.jar!/" />
+        </CLASSES>
+        <JAVADOC />
+        <SOURCES>
+          <root url="file://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/src" />
+        </SOURCES>
+      </library>
+    </orderEntry>
+    <orderEntry type="module-library">
+      <library>
+        <CLASSES>
+          <root url="jar://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/lib/groovy-all-2.4.12.jar!/" />
         </CLASSES>
         <JAVADOC />
         <SOURCES />
@@ -60,23 +70,10 @@
     <orderEntry type="module-library">
       <library>
         <CLASSES>
-          <root url="jar://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/lib/gradle-kotlin-dsl-0.12.0-SNAPSHOT.jar!/" />
+          <root url="jar://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/lib/kotlin-reflect-1.1.51.jar!/" />
         </CLASSES>
         <JAVADOC />
-        <SOURCES>
-          <root url="file://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/src" />
-        </SOURCES>
-      </library>
-    </orderEntry>
-    <orderEntry type="module-library">
-      <library>
-        <CLASSES>
-          <root url="jar://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/lib/gradle-kotlin-dsl-tooling-models-0.12.0-SNAPSHOT.jar!/" />
-        </CLASSES>
-        <JAVADOC />
-        <SOURCES>
-          <root url="file://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/src" />
-        </SOURCES>
+        <SOURCES />
       </library>
     </orderEntry>
     <orderEntry type="module-library">
@@ -161,7 +158,7 @@
     <orderEntry type="module-library">
       <library>
         <CLASSES>
-          <root url="jar://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/lib/groovy-all-2.4.12.jar!/" />
+          <root url="jar://$USER_HOME$/.gradle/caches/4.3-20171004164220+0000/generated-gradle-jars/gradle-kotlin-dsl-extensions-0.12.0-SNAPSHOT-4.3-20171004164220+0000.jar!/" />
         </CLASSES>
         <JAVADOC />
         <SOURCES />
@@ -170,16 +167,18 @@
     <orderEntry type="module-library">
       <library>
         <CLASSES>
-          <root url="jar://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/lib/kotlin-reflect-1.1.51.jar!/" />
+          <root url="jar://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/lib/gradle-kotlin-dsl-tooling-models-0.12.0-SNAPSHOT.jar!/" />
         </CLASSES>
         <JAVADOC />
-        <SOURCES />
+        <SOURCES>
+          <root url="file://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/src" />
+        </SOURCES>
       </library>
     </orderEntry>
     <orderEntry type="module-library">
       <library>
         <CLASSES>
-          <root url="jar://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/lib/gradle-installation-beacon-4.3.jar!/" />
+          <root url="jar://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/lib/gradle-kotlin-dsl-0.12.0-SNAPSHOT.jar!/" />
         </CLASSES>
         <JAVADOC />
         <SOURCES>
@@ -203,12 +202,40 @@
     <orderEntry type="module-library" scope="PROVIDED">
       <library>
         <CLASSES>
+          <root url="jar://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/lib/gradle-kotlin-dsl-0.12.0-SNAPSHOT.jar!/" />
+        </CLASSES>
+        <JAVADOC />
+        <SOURCES />
+      </library>
+    </orderEntry>
+    <orderEntry type="module-library" scope="PROVIDED">
+      <library>
+        <CLASSES>
+          <root url="jar://$USER_HOME$/.gradle/caches/4.3-20171004164220+0000/generated-gradle-jars/gradle-kotlin-dsl-extensions-0.12.0-SNAPSHOT-4.3-20171004164220+0000.jar!/" />
+        </CLASSES>
+        <JAVADOC />
+        <SOURCES />
+      </library>
+    </orderEntry>
+    <orderEntry type="module-library" scope="PROVIDED">
+      <library>
+        <CLASSES>
+          <root url="jar://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/lib/gradle-installation-beacon-4.3.jar!/" />
+        </CLASSES>
+        <JAVADOC />
+        <SOURCES />
+      </library>
+    </orderEntry>
+    <orderEntry type="module-library" scope="PROVIDED">
+      <library>
+        <CLASSES>
           <root url="jar://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/lib/groovy-all-2.4.12.jar!/" />
         </CLASSES>
         <JAVADOC />
         <SOURCES />
       </library>
     </orderEntry>
+    <orderEntry type="library" scope="PROVIDED" name="Gradle: org.jetbrains.kotlin:kotlin-reflect:1.1.51" level="project" />
     <orderEntry type="module-library" scope="PROVIDED">
       <library>
         <CLASSES>
@@ -218,35 +245,7 @@
         <SOURCES />
       </library>
     </orderEntry>
-    <orderEntry type="library" scope="PROVIDED" name="Gradle: org.jetbrains.kotlin:kotlin-reflect:1.1.51" level="project" />
     <orderEntry type="library" scope="PROVIDED" name="Gradle: org.jetbrains.kotlin:kotlin-stdlib:1.1.51" level="project" />
-    <orderEntry type="module-library">
-      <library>
-        <CLASSES>
-          <root url="jar://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/lib/gradle-installation-beacon-4.3.jar!/" />
-        </CLASSES>
-        <JAVADOC />
-        <SOURCES />
-      </library>
-    </orderEntry>
-    <orderEntry type="module-library">
-      <library>
-        <CLASSES>
-          <root url="jar://$USER_HOME$/.gradle/caches/4.3-20171004164220+0000/generated-gradle-jars/gradle-kotlin-dsl-extensions-0.12.0-SNAPSHOT-4.3-20171004164220+0000.jar!/" />
-        </CLASSES>
-        <JAVADOC />
-        <SOURCES />
-      </library>
-    </orderEntry>
-    <orderEntry type="module-library">
-      <library>
-        <CLASSES>
-          <root url="jar://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/lib/gradle-kotlin-dsl-0.12.0-SNAPSHOT.jar!/" />
-        </CLASSES>
-        <JAVADOC />
-        <SOURCES />
-      </library>
-    </orderEntry>
     <orderEntry type="module-library">
       <library>
         <CLASSES>
