@@ -24,6 +24,13 @@
               <option value="$KOTLIN_BUNDLED$/lib/allopen-compiler-plugin.jar" />
             </array>
           </option>
+          <option name="freeArgs">
+            <list>
+              <option value="Xno-param-assertions" />
+              <option value="Xno-call-assertions" />
+              <option value="Xno-receiver-assertions" />
+            </list>
+          </option>
         </compilerArguments>
       </configuration>
     </facet>
@@ -32,12 +39,62 @@
     <output-test url="file://$MODULE_DIR$/out/test/classes" />
     <exclude-output />
     <content url="file://$MODULE_DIR$/src/test">
-      <sourceFolder url="file://$MODULE_DIR$/src/test/java" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/src/test/kotlin" isTestSource="true" />
-      <sourceFolder url="file://$MODULE_DIR$/src/test/resources" type="java-test-resource" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
+    <orderEntry type="module-library">
+      <library>
+        <CLASSES>
+          <root url="jar://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/lib/groovy-all-2.4.12.jar!/" />
+        </CLASSES>
+        <JAVADOC />
+        <SOURCES />
+      </library>
+    </orderEntry>
+    <orderEntry type="module" module-name="jnb-ping_main" />
+    <orderEntry type="module-library">
+      <library>
+        <CLASSES>
+          <root url="jar://$USER_HOME$/.gradle/caches/4.3-20171004164220+0000/generated-gradle-jars/gradle-kotlin-dsl-extensions-0.12.0-SNAPSHOT-4.3-20171004164220+0000.jar!/" />
+        </CLASSES>
+        <JAVADOC />
+        <SOURCES />
+      </library>
+    </orderEntry>
+    <orderEntry type="module-library">
+      <library>
+        <CLASSES>
+          <root url="jar://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/lib/gradle-kotlin-dsl-tooling-models-0.12.0-SNAPSHOT.jar!/" />
+        </CLASSES>
+        <JAVADOC />
+        <SOURCES>
+          <root url="file://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/src" />
+        </SOURCES>
+      </library>
+    </orderEntry>
+    <orderEntry type="module-library">
+      <library>
+        <CLASSES>
+          <root url="jar://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/lib/gradle-installation-beacon-4.3.jar!/" />
+        </CLASSES>
+        <JAVADOC />
+        <SOURCES>
+          <root url="file://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/src" />
+        </SOURCES>
+      </library>
+    </orderEntry>
+    <orderEntry type="module-library">
+      <library>
+        <CLASSES>
+          <root url="jar://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/lib/gradle-kotlin-dsl-0.12.0-SNAPSHOT.jar!/" />
+        </CLASSES>
+        <JAVADOC />
+        <SOURCES>
+          <root url="file://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/src" />
+        </SOURCES>
+      </library>
+    </orderEntry>
     <orderEntry type="module-library">
       <library>
         <CLASSES>
@@ -120,7 +177,7 @@
     <orderEntry type="module-library">
       <library>
         <CLASSES>
-          <root url="jar://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/lib/groovy-all-2.4.12.jar!/" />
+          <root url="jar://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/lib/kotlin-stdlib-1.1.51.jar!/" />
         </CLASSES>
         <JAVADOC />
         <SOURCES />
@@ -135,58 +192,6 @@
         <SOURCES />
       </library>
     </orderEntry>
-    <orderEntry type="module" module-name="jnb-ping_main" />
-    <orderEntry type="module-library">
-      <library>
-        <CLASSES>
-          <root url="jar://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/lib/gradle-installation-beacon-4.3.jar!/" />
-        </CLASSES>
-        <JAVADOC />
-        <SOURCES>
-          <root url="file://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/src" />
-        </SOURCES>
-      </library>
-    </orderEntry>
-    <orderEntry type="module-library">
-      <library>
-        <CLASSES>
-          <root url="jar://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/lib/gradle-kotlin-dsl-0.12.0-SNAPSHOT.jar!/" />
-        </CLASSES>
-        <JAVADOC />
-        <SOURCES>
-          <root url="file://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/src" />
-        </SOURCES>
-      </library>
-    </orderEntry>
-    <orderEntry type="module-library">
-      <library>
-        <CLASSES>
-          <root url="jar://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/lib/kotlin-stdlib-1.1.51.jar!/" />
-        </CLASSES>
-        <JAVADOC />
-        <SOURCES />
-      </library>
-    </orderEntry>
-    <orderEntry type="module-library">
-      <library>
-        <CLASSES>
-          <root url="jar://$USER_HOME$/.gradle/caches/4.3-20171004164220+0000/generated-gradle-jars/gradle-kotlin-dsl-extensions-0.12.0-SNAPSHOT-4.3-20171004164220+0000.jar!/" />
-        </CLASSES>
-        <JAVADOC />
-        <SOURCES />
-      </library>
-    </orderEntry>
-    <orderEntry type="module-library">
-      <library>
-        <CLASSES>
-          <root url="jar://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/lib/gradle-kotlin-dsl-tooling-models-0.12.0-SNAPSHOT.jar!/" />
-        </CLASSES>
-        <JAVADOC />
-        <SOURCES>
-          <root url="file://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/src" />
-        </SOURCES>
-      </library>
-    </orderEntry>
     <orderEntry type="library" name="Gradle: com.github.jnr:jnr-posix:3.0.41" level="project" />
     <orderEntry type="library" name="Gradle: it.unimi.dsi:fastutil:8.1.0" level="project" />
     <orderEntry type="module-library" scope="RUNTIME">
@@ -198,7 +203,6 @@
         <SOURCES />
       </library>
     </orderEntry>
-    <orderEntry type="library" name="Gradle: junit:junit:4.12" level="project" />
     <orderEntry type="module-library" scope="RUNTIME">
       <library>
         <CLASSES>
@@ -208,7 +212,7 @@
         <SOURCES />
       </library>
     </orderEntry>
-    <orderEntry type="library" name="Gradle: com.github.jnr:jnr-ffi:2.1.4" level="project" />
+    <orderEntry type="library" name="Gradle: junit:junit:4.12" level="project" />
     <orderEntry type="module-library" scope="RUNTIME">
       <library>
         <CLASSES>
@@ -218,11 +222,21 @@
         <SOURCES />
       </library>
     </orderEntry>
+    <orderEntry type="library" name="Gradle: com.github.jnr:jnr-ffi:2.1.4" level="project" />
     <orderEntry type="library" name="Gradle: com.github.jnr:jnr-constants:0.9.8" level="project" />
     <orderEntry type="module-library" scope="RUNTIME">
       <library>
         <CLASSES>
           <root url="jar://$USER_HOME$/.gradle/caches/4.3-20171004164220+0000/generated-gradle-jars/gradle-kotlin-dsl-extensions-0.12.0-SNAPSHOT-4.3-20171004164220+0000.jar!/" />
+        </CLASSES>
+        <JAVADOC />
+        <SOURCES />
+      </library>
+    </orderEntry>
+    <orderEntry type="module-library" scope="RUNTIME">
+      <library>
+        <CLASSES>
+          <root url="jar://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/lib/gradle-kotlin-dsl-0.12.0-SNAPSHOT.jar!/" />
         </CLASSES>
         <JAVADOC />
         <SOURCES />
@@ -235,7 +249,7 @@
     <orderEntry type="module-library" scope="RUNTIME">
       <library>
         <CLASSES>
-          <root url="jar://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/lib/gradle-kotlin-dsl-0.12.0-SNAPSHOT.jar!/" />
+          <root url="jar://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/lib/gradle-kotlin-dsl-tooling-models-0.12.0-SNAPSHOT.jar!/" />
         </CLASSES>
         <JAVADOC />
         <SOURCES />
@@ -249,15 +263,6 @@
     <orderEntry type="library" scope="PROVIDED" name="Gradle: org.jetbrains.kotlin:kotlin-stdlib:1.1.51" level="project" />
     <orderEntry type="library" scope="PROVIDED" name="Gradle: org.jetbrains.kotlin:kotlin-reflect:1.1.51" level="project" />
     <orderEntry type="library" name="Gradle: com.github.jnr:jnr-x86asm:1.0.2" level="project" />
-    <orderEntry type="module-library">
-      <library>
-        <CLASSES>
-          <root url="jar://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/lib/gradle-kotlin-dsl-tooling-models-0.12.0-SNAPSHOT.jar!/" />
-        </CLASSES>
-        <JAVADOC />
-        <SOURCES />
-      </library>
-    </orderEntry>
     <orderEntry type="module-library">
       <library>
         <CLASSES>

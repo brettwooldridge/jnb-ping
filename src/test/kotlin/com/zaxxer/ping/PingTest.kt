@@ -1,6 +1,7 @@
 package com.zaxxer.ping
 
 import com.zaxxer.ping.impl.*
+import com.zaxxer.ping.impl.NativeStatic.Companion.runtime
 import com.zaxxer.ping.impl.util.dumpBuffer
 import jnr.ffi.Struct
 import org.junit.Assert.assertEquals
@@ -37,7 +38,6 @@ class PingTest {
       assertEquals(4, Icmp().icmp_hun.ih_idseq.icd_id.offset())
       assertEquals(6, Icmp().icmp_hun.ih_idseq.icd_seq.offset())
       assertEquals(8, Icmp().icmp_dun.id_data.offset())
-      assertEquals(8, Struct.size(Tv32()))
       assertEquals(128, Struct.size(Fd_set()))
 
       val buffer = ByteBuffer.allocateDirect(128)

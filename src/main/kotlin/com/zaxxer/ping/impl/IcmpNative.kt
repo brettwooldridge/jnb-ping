@@ -23,7 +23,6 @@
 package com.zaxxer.ping.impl
 
 import com.zaxxer.ping.impl.NativeStatic.Companion.isBSD
-import com.zaxxer.ping.impl.NativeStatic.Companion.posix
 import com.zaxxer.ping.impl.NativeStatic.Companion.runtime
 import jnr.constants.platform.AddressFamily.AF_INET
 import jnr.constants.platform.AddressFamily.AF_INET6
@@ -130,8 +129,6 @@ val F_SETFL = jnr.constants.platform.Fcntl.F_SETFL.intValue()
 val O_NONBLOCK = jnr.constants.platform.OpenFlags.O_NONBLOCK.intValue()
 
 val SIZEOF_STRUCT_IP = Struct.size(Ip())
-val SIZEOF_STRUCT_TV32 = Struct.size(Tv32())
-val SIZEOF_STRUCT_TIMEVAL = Struct.size(posix.allocateTimeval())
 
 interface LibC {
    fun socket(domain : Int, type : Int, protocol : Int) : Int
@@ -342,16 +339,6 @@ class Icmp : Struct(runtime) {
    // union {
    val icmp_dun : Dun = inner(Dun())
    // } icmp_dun
-}
-
-
-// struct tv32 {
-//     u_int32_t tv32_sec;
-//     u_int32_t tv32_usec;
-// };
-class Tv32 : Struct(runtime) {
-   val tv32_sec = Unsigned32()
-   val tv32_usec = Unsigned32()
 }
 
 // See https://opensource.apple.com/source/network_cmds/network_cmds-329.2/ping.tproj/ping.c
