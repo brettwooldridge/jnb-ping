@@ -4,7 +4,7 @@
     <facet type="kotlin-language" name="Kotlin">
       <configuration version="3" platform="JVM 1.8" useProjectSettings="false">
         <compilerSettings>
-          <option name="additionalArguments" value="Xno-param-assertions Xno-call-assertions Xno-receiver-assertions" />
+          <option name="additionalArguments" value="Xno-param-assertions Xno-call-assertions Xno-receiver-assertions Xno-param-assertions Xno-call-assertions Xno-receiver-assertions" />
         </compilerSettings>
         <compilerArguments>
           <option name="destination" value="$MODULE_DIR$/build/classes/kotlin/main" />
@@ -23,7 +23,7 @@
           </option>
           <option name="pluginClasspaths">
             <array>
-              <option value="$KOTLIN_BUNDLED$/lib/allopen-compiler-plugin.jar" />
+              <option value="$KOTLIN_BUNDLED$/lib/sam-with-receiver-compiler-plugin.jar" />
             </array>
           </option>
         </compilerArguments>
@@ -34,10 +34,32 @@
     <output url="file://$MODULE_DIR$/out/production/classes" />
     <exclude-output />
     <content url="file://$MODULE_DIR$/src/main">
+      <sourceFolder url="file://$MODULE_DIR$/src/main/java" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/src/main/kotlin" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/src/main/resources" type="java-resource" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
+    <orderEntry type="module-library">
+      <library>
+        <CLASSES>
+          <root url="jar://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/lib/gradle-installation-beacon-4.3.jar!/" />
+        </CLASSES>
+        <JAVADOC />
+        <SOURCES>
+          <root url="file://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/src" />
+        </SOURCES>
+      </library>
+    </orderEntry>
+    <orderEntry type="module-library">
+      <library>
+        <CLASSES>
+          <root url="jar://$USER_HOME$/.gradle/caches/4.3-20171004164220+0000/generated-gradle-jars/gradle-kotlin-dsl-extensions-0.12.0-SNAPSHOT-4.3-20171004164220+0000.jar!/" />
+        </CLASSES>
+        <JAVADOC />
+        <SOURCES />
+      </library>
+    </orderEntry>
     <orderEntry type="module-library">
       <library>
         <CLASSES>
@@ -61,32 +83,21 @@
     <orderEntry type="module-library">
       <library>
         <CLASSES>
+          <root url="jar://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/lib/groovy-all-2.4.12.jar!/" />
+        </CLASSES>
+        <JAVADOC />
+        <SOURCES />
+      </library>
+    </orderEntry>
+    <orderEntry type="module-library">
+      <library>
+        <CLASSES>
           <root url="jar://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/lib/gradle-kotlin-dsl-0.12.0-SNAPSHOT.jar!/" />
         </CLASSES>
         <JAVADOC />
         <SOURCES>
           <root url="file://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/src" />
         </SOURCES>
-      </library>
-    </orderEntry>
-    <orderEntry type="module-library">
-      <library>
-        <CLASSES>
-          <root url="jar://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/lib/gradle-installation-beacon-4.3.jar!/" />
-        </CLASSES>
-        <JAVADOC />
-        <SOURCES>
-          <root url="file://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/src" />
-        </SOURCES>
-      </library>
-    </orderEntry>
-    <orderEntry type="module-library">
-      <library>
-        <CLASSES>
-          <root url="jar://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/lib/groovy-all-2.4.12.jar!/" />
-        </CLASSES>
-        <JAVADOC />
-        <SOURCES />
       </library>
     </orderEntry>
     <orderEntry type="module-library">
@@ -177,15 +188,6 @@
         <SOURCES />
       </library>
     </orderEntry>
-    <orderEntry type="module-library">
-      <library>
-        <CLASSES>
-          <root url="jar://$USER_HOME$/.gradle/caches/4.3-20171004164220+0000/generated-gradle-jars/gradle-kotlin-dsl-extensions-0.12.0-SNAPSHOT-4.3-20171004164220+0000.jar!/" />
-        </CLASSES>
-        <JAVADOC />
-        <SOURCES />
-      </library>
-    </orderEntry>
     <orderEntry type="library" name="Gradle: com.github.jnr:jnr-posix:3.0.41" level="project" />
     <orderEntry type="library" name="Gradle: it.unimi.dsi:fastutil:8.1.0" level="project" />
     <orderEntry type="library" name="Gradle: com.github.jnr:jnr-ffi:2.1.4" level="project" />
@@ -202,27 +204,25 @@
     <orderEntry type="module-library" scope="PROVIDED">
       <library>
         <CLASSES>
-          <root url="jar://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/lib/gradle-kotlin-dsl-tooling-models-0.12.0-SNAPSHOT.jar!/" />
+          <root url="jar://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/lib/kotlin-reflect-1.1.51.jar!/" />
         </CLASSES>
         <JAVADOC />
         <SOURCES />
       </library>
     </orderEntry>
-    <orderEntry type="library" scope="PROVIDED" name="Gradle: org.jetbrains.kotlin:kotlin-stdlib:1.1.51" level="project" />
     <orderEntry type="module-library" scope="PROVIDED">
       <library>
         <CLASSES>
-          <root url="jar://$USER_HOME$/.gradle/caches/4.3-20171004164220+0000/generated-gradle-jars/gradle-api-4.3-20171004164220+0000.jar!/" />
+          <root url="jar://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/lib/gradle-installation-beacon-4.3.jar!/" />
         </CLASSES>
         <JAVADOC />
         <SOURCES />
       </library>
     </orderEntry>
-    <orderEntry type="library" scope="PROVIDED" name="Gradle: org.jetbrains.kotlin:kotlin-reflect:1.1.51" level="project" />
     <orderEntry type="module-library" scope="PROVIDED">
       <library>
         <CLASSES>
-          <root url="jar://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/lib/groovy-all-2.4.12.jar!/" />
+          <root url="jar://$USER_HOME$/.gradle/caches/4.3-20171004164220+0000/generated-gradle-jars/gradle-kotlin-dsl-extensions-0.12.0-SNAPSHOT-4.3-20171004164220+0000.jar!/" />
         </CLASSES>
         <JAVADOC />
         <SOURCES />
@@ -240,25 +240,27 @@
     <orderEntry type="module-library" scope="PROVIDED">
       <library>
         <CLASSES>
-          <root url="jar://$USER_HOME$/.gradle/caches/4.3-20171004164220+0000/generated-gradle-jars/gradle-kotlin-dsl-extensions-0.12.0-SNAPSHOT-4.3-20171004164220+0000.jar!/" />
+          <root url="jar://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/lib/groovy-all-2.4.12.jar!/" />
         </CLASSES>
         <JAVADOC />
         <SOURCES />
       </library>
     </orderEntry>
+    <orderEntry type="library" scope="PROVIDED" name="Gradle: org.jetbrains.kotlin:kotlin-reflect:1.1.51" level="project" />
     <orderEntry type="module-library" scope="PROVIDED">
       <library>
         <CLASSES>
-          <root url="jar://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/lib/gradle-installation-beacon-4.3.jar!/" />
+          <root url="jar://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/lib/gradle-kotlin-dsl-tooling-models-0.12.0-SNAPSHOT.jar!/" />
         </CLASSES>
         <JAVADOC />
         <SOURCES />
       </library>
     </orderEntry>
-    <orderEntry type="module-library">
+    <orderEntry type="library" scope="PROVIDED" name="Gradle: org.jetbrains.kotlin:kotlin-stdlib:1.1.51" level="project" />
+    <orderEntry type="module-library" scope="PROVIDED">
       <library>
         <CLASSES>
-          <root url="jar://$USER_HOME$/.gradle/wrapper/dists/gradle-kotlin-dsl-4.3-20171004164220+0000-all/3f2p0ny7pj1ukd2adgnbqihca/gradle-4.3-20171004164220+0000/lib/kotlin-reflect-1.1.51.jar!/" />
+          <root url="jar://$USER_HOME$/.gradle/caches/4.3-20171004164220+0000/generated-gradle-jars/gradle-api-4.3-20171004164220+0000.jar!/" />
         </CLASSES>
         <JAVADOC />
         <SOURCES />

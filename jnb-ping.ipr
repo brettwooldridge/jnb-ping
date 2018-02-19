@@ -66,6 +66,28 @@
     </option>
   </component>
   <component name="PhpWorkspaceProjectConfiguration" backward_compatibility_performed="true" />
+  <component name="ProjectCodeStyleConfiguration">
+    <option name="USE_PER_PROJECT_SETTINGS" value="true" />
+    <code_scheme name="Project" version="173">
+      <JetCodeStyleSettings>
+        <option name="NAME_COUNT_TO_USE_STAR_IMPORT" value="2147483647" />
+        <option name="NAME_COUNT_TO_USE_STAR_IMPORT_FOR_MEMBERS" value="2147483647" />
+      </JetCodeStyleSettings>
+      <codeStyleSettings language="XML">
+        <indentOptions>
+          <option name="INDENT_SIZE" value="2" />
+          <option name="TAB_SIZE" value="2" />
+        </indentOptions>
+      </codeStyleSettings>
+      <codeStyleSettings language="kotlin">
+        <indentOptions>
+          <option name="INDENT_SIZE" value="3" />
+          <option name="CONTINUATION_INDENT_SIZE" value="6" />
+          <option name="TAB_SIZE" value="3" />
+        </indentOptions>
+      </codeStyleSettings>
+    </code_scheme>
+  </component>
   <component name="ProjectInspectionProfilesVisibleTreeState">
     <entry key="Project Default">
       <profile-state>
@@ -105,6 +127,7 @@
   </component>
   <component name="ProjectModuleManager">
     <modules>
+      <module fileurl="file://$PROJECT_DIR$/jnb-ping.iml" filepath="$PROJECT_DIR$/jnb-ping.iml" />
       <module fileurl="file://$PROJECT_DIR$/jnb-ping_main.iml" filepath="$PROJECT_DIR$/jnb-ping_main.iml" group="jnb-ping" />
       <module fileurl="file://$PROJECT_DIR$/jnb-ping_test.iml" filepath="$PROJECT_DIR$/jnb-ping_test.iml" group="jnb-ping" />
     </modules>

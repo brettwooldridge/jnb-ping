@@ -41,18 +41,18 @@ import java.nio.ByteBuffer
 
 internal class NativeStatic {
    companion object {
-      @JvmStatic val runtime : jnr.ffi.Runtime = jnr.ffi.Runtime.getSystemRuntime()!!
-      @JvmStatic val platform : Platform = Platform.getNativePlatform()
+      @JvmStatic val runtime:jnr.ffi.Runtime = jnr.ffi.Runtime.getSystemRuntime()!!
+      @JvmStatic val platform:Platform = Platform.getNativePlatform()
       @JvmStatic val isBSD = platform.isBSD
-      @JvmStatic val posix : POSIX = POSIXFactory.getNativePOSIX()
-      @JvmStatic val libc : LibC = LibraryLoader.create(LibC::class.java).load(platform.standardCLibraryName)
+      @JvmStatic val posix:POSIX = POSIXFactory.getNativePOSIX()
+      @JvmStatic val libc:LibC = LibraryLoader.create(LibC::class.java).load(platform.standardCLibraryName)
    }
 }
 
-open class SockAddr : Struct(runtime)
-open class SockAddr6 : SockAddr()
+open class SockAddr:Struct(runtime)
+open class SockAddr6:SockAddr()
 
-class BSDSockAddr4(address : Inet4Address) : SockAddr() {
+class BSDSockAddr4(address:Inet4Address) : SockAddr() {
    @field:JvmField val sin_len = Unsigned8()
    @field:JvmField val sin_family = Unsigned8()
    @field:JvmField val sin_port = Unsigned16()
@@ -61,18 +61,18 @@ class BSDSockAddr4(address : Inet4Address) : SockAddr() {
 
    init {
       val bytes = address.address
-      val inAddr : Int = (bytes[3].toInt() and 0xff shl 24) or (bytes[2].toInt() and 0xff shl 16) or (bytes[1].toInt() and 0xff shl 8) or (bytes[0].toInt() and 0xff)
+      val inAddr:Int = (bytes[3].toInt() and 0xff shl 24) or (bytes[2].toInt() and 0xff shl 16) or (bytes[1].toInt() and 0xff shl 8) or (bytes[0].toInt() and 0xff)
       sin_addr.set(inAddr)
       sin_family.set(PF_INET)
    }
 }
 
-class BSDSockAddr6 : SockAddr6() {
+class BSDSockAddr6:SockAddr6() {
    @field:JvmField val sin_len = Unsigned8()
    @field:JvmField val sin_family = Unsigned8()
    @field:JvmField val sin_port = Unsigned16()
    @field:JvmField val flowinfo = Unsigned32()
-   @field:JvmField val sin_addr : Array<out Unsigned8> = array(Array(4, {Unsigned8()}))
+   @field:JvmField val sin_addr:Array<out Unsigned8> = array(Array(4, {Unsigned8()}))
    @field:JvmField val sin_scope_id = Unsigned32()
 
    init {
@@ -80,7 +80,7 @@ class BSDSockAddr6 : SockAddr6() {
    }
 }
 
-class LinuxSockAddr4(address : Inet4Address) : SockAddr() {
+class LinuxSockAddr4(address:Inet4Address) : SockAddr() {
    @field:JvmField val sin_family = Unsigned16()
    @field:JvmField val sin_port = Unsigned16()
    @field:JvmField val sin_addr = Unsigned32()
@@ -88,17 +88,17 @@ class LinuxSockAddr4(address : Inet4Address) : SockAddr() {
 
    init {
       val bytes = address.address
-      val inAddr : Int = (bytes[3].toInt() and 0xff shl 24) or (bytes[2].toInt() and 0xff shl 16) or (bytes[1].toInt() and 0xff shl 8) or (bytes[0].toInt() and 0xff)
+      val inAddr:Int = (bytes[3].toInt() and 0xff shl 24) or (bytes[2].toInt() and 0xff shl 16) or (bytes[1].toInt() and 0xff shl 8) or (bytes[0].toInt() and 0xff)
       sin_addr.set(inAddr)
       sin_family.set(PF_INET)
    }
 }
 
-class LinuxSockAddr6 : SockAddr6() {
+class LinuxSockAddr6:SockAddr6() {
    @field:JvmField val sin_family = Unsigned16()
    @field:JvmField val sin_port = Unsigned16()
    @field:JvmField val flowinfo = Unsigned32()
-   @field:JvmField val sin_addr : Array<out Unsigned8> = array(Array(16, {Unsigned8()}))
+   @field:JvmField val sin_addr:Array<out Unsigned8> = array(Array(16, {Unsigned8()}))
    @field:JvmField val sin_scope_id = Unsigned32()
 }
 
@@ -131,36 +131,36 @@ val O_NONBLOCK = jnr.constants.platform.OpenFlags.O_NONBLOCK.intValue()
 val SIZEOF_STRUCT_IP = Struct.size(Ip())
 
 interface LibC {
-   fun socket(domain : Int, type : Int, protocol : Int) : Int
+   fun socket(domain:Int, type:Int, protocol:Int) : Int
 
-   fun setsockopt(fd : Int, level : Int, option : Int, @In value : IntByReference, @socklen_t len : Int) : Int
+   fun setsockopt(fd:Int, level:Int, option:Int, @In value:IntByReference, @socklen_t len:Int) : Int
 
-   fun fcntl(fd : Int, cmd : Int, data : Int) : Int
+   fun fcntl(fd:Int, cmd:Int, data:Int) : Int
 
-   fun pipe(@Out fds : IntArray) : Int
+   fun pipe(@Out fds:IntArray) : Int
 
-   fun select(fd : Int, read_set : Pointer, write_set : Pointer, @In @Out error_set : Fd_set?, @In @Out timeval : Timeval?) : Int
+   fun select(fd:Int, read_set:Pointer, write_set:Pointer, @In @Out error_set:Fd_set?, @In @Out timeval:Timeval?) : Int
 
-   fun inet_pton(af : Int, cp : String, buf : Pointer) : Int
+   fun inet_pton(af:Int, cp:String, buf:Pointer) : Int
 
-   fun inet_network (@In cp : String) : Pointer
+   fun inet_network (@In cp:String) : Pointer
 
-   fun close(fd : Int) : Int
+   fun close(fd:Int) : Int
 
-   @ssize_t fun sendto (fd : Int, @In buf : Pointer, @size_t len : Int, flags : Int, addr : SockAddr, @size_t addrLen : Int) : Int
+   @ssize_t fun sendto (fd:Int, @In buf:Pointer, @size_t len:Int, flags:Int, addr:SockAddr, @size_t addrLen:Int) : Int
 
-   @ssize_t fun recvfrom(fd : Int, @Out buf : ByteBuffer, @size_t len : Int, flags : Int, addr : SockAddr, addrLen : Int) : Int
+   @ssize_t fun recvfrom(fd:Int, @Out buf:ByteBuffer, @size_t len:Int, flags:Int, addr:SockAddr, addrLen:Int) : Int
 
-   @ssize_t fun read(fd : Int, @Out data : ByteArray, @size_t size : Long) : Int
+   @ssize_t fun read(fd:Int, @Out data:ByteArray, @size_t size:Long) : Int
 
-   @ssize_t fun write(fd : Int, @In data : ByteArray, @size_t size : Long) : Int
+   @ssize_t fun write(fd:Int, @In data:ByteArray, @size_t size:Long) : Int
 }
 
-fun htons(s : Short) = java.lang.Short.reverseBytes(s)
+fun htons(s:Short) = java.lang.Short.reverseBytes(s)
 
-fun ntohs(s : Short) = java.lang.Short.reverseBytes(s)
+fun ntohs(s:Short) = java.lang.Short.reverseBytes(s)
 
-fun htonl(value : Long) : Long {
+fun htonl(value:Long) : Long {
    return ((value and 0xff000000) shr 24) or
           ((value and 0x00ff0000) shr 8) or
           ((value and 0x0000ff00) shl 8) or
@@ -177,9 +177,9 @@ fun htonl(value : Long) : Long {
 // typedef struct fd_set {
 //    __int32_t  fds_bits[__DARWIN_howmany(__DARWIN_FD_SETSIZE, __DARWIN_NFDBITS)];
 // } fd_set;
-class Fd_set : Struct(runtime) {
+class Fd_set:Struct(runtime) {
 
-   @field:JvmField val fds_bits : Array<out Signed32> = Array(32, { Signed32() })
+   @field:JvmField val fds_bits:Array<out Signed32> = Array(32, { Signed32() })
 
    init {
       val memory = this.runtime.memoryManager.allocateDirect(size(this))
@@ -189,7 +189,7 @@ class Fd_set : Struct(runtime) {
 
 val SIZEOF_FD_SET = Struct.size(Fd_set()).toLong()
 
-fun FD_SET(fd : Int, fd_set : Fd_set) {
+fun FD_SET(fd:Int, fd_set:Fd_set) {
    // ((fd_set*)->fds_bits[ (unsigned long)__fd / 32 ] |= ((__int32_t) (((unsigned long) 1) << ((unsigned long) __fd % 32))))
    val ndx = fd / 32
    val currvalue = fd_set.fds_bits[ndx].get()
@@ -198,7 +198,7 @@ fun FD_SET(fd : Int, fd_set : Fd_set) {
    fd_set.fds_bits[ndx].set(newValue)
 }
 
-fun FD_ISSET(fd : Int, fd_set : Fd_set) : Boolean {
+fun FD_ISSET(fd:Int, fd_set:Fd_set) : Boolean {
    // return (_p->fds_bits[(unsigned long)_n/__DARWIN_NFDBITS] & ((__int32_t)(((unsigned long)1)<<((unsigned long)_n % __DARWIN_NFDBITS))))
    val ndx = fd / 32
    val currvalue = fd_set.fds_bits[ndx].get()
@@ -207,7 +207,7 @@ fun FD_ISSET(fd : Int, fd_set : Fd_set) : Boolean {
    return currvalue and andValue != 0
 }
 
-fun FD_ZERO(fd_set : Fd_set) = Struct.getMemory(fd_set).setMemory(0, SIZEOF_FD_SET, 0)
+fun FD_ZERO(fd_set:Fd_set) = Struct.getMemory(fd_set).setMemory(0, SIZEOF_FD_SET, 0)
 
 
 /*****************************************************************************
@@ -220,7 +220,7 @@ fun FD_ZERO(fd_set : Fd_set) = Struct.getMemory(fd_set).setMemory(0, SIZEOF_FD_S
 //  * Structure of an internet header, naked of options.
 //  */
 // struct ip {
-class Ip : Struct(runtime) {
+class Ip:Struct(runtime) {
    // u_char	ip_vhl;			/* version << 4 | header length >> 2 */
    val ip_vhl = Unsigned8()
    // u_char	ip_tos;			/* type of service */
@@ -243,7 +243,7 @@ class Ip : Struct(runtime) {
 }
 
 // union {
-class Hun : Union(runtime) {
+class Hun:Union(runtime) {
    // u_char ih_pptr;			   /* ICMP_PARAMPROB */
    // struct in_addr ih_gwaddr;	/* ICMP_REDIRECT */
    val ih_pptr = Unsigned8()
@@ -252,11 +252,11 @@ class Hun : Union(runtime) {
    //    n_short	icd_id;
    //    n_short	icd_seq;
    // } ih_idseq;
-   class IdSeq : Struct(runtime) {
+   class IdSeq:Struct(runtime) {
       val icd_id = Unsigned16()
       val icd_seq = Unsigned16()
    }
-   val ih_idseq : IdSeq = inner(IdSeq())
+   val ih_idseq:IdSeq = inner(IdSeq())
    // int ih_void;
    val ih_void = Unsigned32()
    // /* ICMP_UNREACH_NEEDFRAG -- Path MTU Discovery (RFC1191) */
@@ -264,47 +264,47 @@ class Hun : Union(runtime) {
    //    n_short ipm_void;
    //    n_short ipm_nextmtu;
    // } ih_pmtu;
-   class Pmtu : Struct(runtime) {
+   class Pmtu:Struct(runtime) {
       val ipm_void = Unsigned16()
       val ipm_nextmtu = Unsigned16()
    }
-   val ih_pmtu : Pmtu = inner(Pmtu())
+   val ih_pmtu:Pmtu = inner(Pmtu())
    // struct ih_rtradv {
    //    u_char irt_num_addrs;
    //    u_char irt_wpa;
    //    u_int16_t irt_lifetime;
    // } ih_rtradv;
-   class Rtradv : Struct(runtime) {
+   class Rtradv:Struct(runtime) {
       val irt_num_addrs = Unsigned8()
       val irt_wpa = Unsigned8()
       val irt_lifetime = Unsigned16()
    }
-   val ih_rtradv : Rtradv = inner(Rtradv())
+   val ih_rtradv:Rtradv = inner(Rtradv())
 }
 
 // union {
-class Dun : Union(runtime) {
+class Dun:Union(runtime) {
    // struct id_ts {
    //    n_time its_otime;
    //    n_time its_rtime;
    //    n_time its_ttime;
    // } id_ts;
-   class IdTs : Struct(runtime) {
+   class IdTs:Struct(runtime) {
       var its_otime = Unsigned32()
       var its_rtime = Unsigned32()
       var its_ttime = Unsigned32()
    }
-   val id_ts : IdTs = inner(IdTs())
+   val id_ts:IdTs = inner(IdTs())
    // struct id_ip  {
    //    struct ip idi_ip;
    //    /* options and then 64 bits of data */
    // } id_ip;
-   class IdIp : Struct(runtime) {
-      val idi_ip : Ip = inner(Ip())
+   class IdIp:Struct(runtime) {
+      val idi_ip:Ip = inner(Ip())
    }
-   val id_ip : IdIp = inner(IdIp())
+   val id_ip:IdIp = inner(IdIp())
    // struct icmp_ra_addr id_radv;
-   val id_radv : RaAddr = inner(RaAddr())
+   val id_radv:RaAddr = inner(RaAddr())
    // /*
    //  * Internal of an ICMP Router Advertisement
    //  */
@@ -312,7 +312,7 @@ class Dun : Union(runtime) {
    //    u_int32_t ira_addr;
    //    u_int32_t ira_preference;
    // };
-   class RaAddr : Struct(runtime) {
+   class RaAddr:Struct(runtime) {
       val ira_addr = Unsigned32()
       val ira_preference = Unsigned32()
    }
@@ -326,7 +326,7 @@ class Dun : Union(runtime) {
 //  * Structure of an icmp header.
 //  */
 // struct icmp {
-class Icmp : Struct(runtime) {
+class Icmp:Struct(runtime) {
    // u_char	icmp_type;		/* type of message, see below */
    // u_char	icmp_code;		/* type sub code */
    // u_short	icmpCksum;		/* ones complement cksum of struct */
@@ -334,15 +334,15 @@ class Icmp : Struct(runtime) {
    val icmp_code = Unsigned8()
    val icmp_cksum = Unsigned16()
    // union {
-   val icmp_hun : Hun = inner(Hun())
+   val icmp_hun:Hun = inner(Hun())
    // } icmp_hun;
    // union {
-   val icmp_dun : Dun = inner(Dun())
+   val icmp_dun:Dun = inner(Dun())
    // } icmp_dun
 }
 
 // See https://opensource.apple.com/source/network_cmds/network_cmds-329.2/ping.tproj/ping.c
-fun icmpCksum(buf : Pointer, len : Int) : Int {
+fun icmpCksum(buf:Pointer, len:Int) : Int {
    var sum = 0
 
    var nleft = len
