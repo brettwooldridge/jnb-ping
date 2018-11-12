@@ -156,7 +156,7 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
       }
    }
 
-   internal fun runSelector() {
+   fun runSelector() {
       val readSetPtr = Struct.getMemory(readSet)
       val writeSetPtr = Struct.getMemory(writeSet)
 
