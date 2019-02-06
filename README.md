@@ -17,14 +17,9 @@ class PingHandler : PingResponseHandler {
    }
 }
 
-val pingTargets = arrayOf(
-   PingTarget(InetAddress.getByName("8.8.8.8")),
-   PingTarget(InetAddress.getByName("youtube.com"))
-)
-
 val pinger = IcmpPinger(PingHandler())
-pinger.ping(pingTargets[0])
-pinger.ping(pingTargets[1])
+pinger.ping( PingTarget(InetAddress.getByName("8.8.8.8")) )
+pinger.ping( PingTarget(InetAddress.getByName("youtube.com")) )
 
 while (pinger.isPendingWork()) Thread.sleep(500)
 
