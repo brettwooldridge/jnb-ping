@@ -37,6 +37,7 @@ import jnr.posix.POSIX
 import jnr.posix.POSIXFactory
 import jnr.posix.Timeval
 import java.net.Inet4Address
+import java.net.Inet6Address
 import java.nio.ByteBuffer
 
 internal class NativeStatic {
@@ -67,16 +68,25 @@ class BSDSockAddr4(address:Inet4Address) : SockAddr() {
    }
 }
 
-class BSDSockAddr6:SockAddr6() {
-   @field:JvmField val sin_len = Unsigned8()
-   @field:JvmField val sin_family = Unsigned8()
-   @field:JvmField val sin_port = Unsigned16()
-   @field:JvmField val flowinfo = Unsigned32()
-   @field:JvmField val sin_addr:Array<out Unsigned8> = array(Array(4, {Unsigned8()}))
-   @field:JvmField val sin_scope_id = Unsigned32()
+class BSDSockAddr6(address: Inet6Address):SockAddr6() {
+   @field:JvmField val sin6_len = Unsigned8()
+   @field:JvmField val sin6_family = Unsigned8()
+   @field:JvmField val sin6_port = Unsigned16()
+   @field:JvmField val sin6_flowinfo = Unsigned32()
+   @field:JvmField val sin6_addr:Array<out Unsigned8> = Array(16, {Unsigned8()})
+   @field:JvmField val sin6_scope_id = Unsigned32()
 
    init {
-      sin_family.set(PF_INET6)
+      sin6_family.set(PF_INET6)
+      val bytes = address.address
+      for(index in 0..15) {
+         val value = bytes[index].toInt() and 0xff
+         sin6_addr[index].set(value)
+      }
+
+      if(address.isLinkLocalAddress) {
+         sin6_scope_id.set(address.scopeId)
+      }
    }
 }
 
@@ -94,12 +104,36 @@ class LinuxSockAddr4(address:Inet4Address) : SockAddr() {
    }
 }
 
-class LinuxSockAddr6:SockAddr6() {
-   @field:JvmField val sin_family = Unsigned16()
-   @field:JvmField val sin_port = Unsigned16()
-   @field:JvmField val flowinfo = Unsigned32()
-   @field:JvmField val sin_addr:Array<out Unsigned8> = array(Array(16, {Unsigned8()}))
-   @field:JvmField val sin_scope_id = Unsigned32()
+class SockAddrIn6:Struct(runtime) {
+   val sin6_len = Unsigned8()
+   val sin6_family = Unsigned8()
+   val sin6_port = Unsigned16()
+   val sin6_flowinfo = Unsigned32()
+   val sin6_addr:Array<out Unsigned8> = Array(16, {Unsigned8()})
+   val sin6_scope_id = Unsigned32()
+}
+
+class LinuxSockAddr6(address:Inet6Address):SockAddr6() {
+   @field:JvmField val sin6_len = Unsigned8()
+   @field:JvmField val sin6_family = Unsigned16()
+   @field:JvmField val sin6_port = Unsigned16()
+   @field:JvmField val sin6_flowinfo = Unsigned32()
+   @field:JvmField val sin6_addr:Array<out Unsigned8> = array(Array(16, {Unsigned8()}))
+   @field:JvmField val sin6_scope_id = Unsigned32()
+
+   init {
+      sin6_family.set(PF_INET6)
+      val bytes = address.address
+      for(index in 0..15) {
+         val value = bytes[index].toInt() and 0xff
+         sin6_addr[index].set(value)
+      }
+
+      if(address.isLinkLocalAddress) {
+         sin6_scope_id.set(address.scopeId)
+      }
+   }
+
 }
 
 const val ICMP_MINLEN = 8
@@ -115,7 +149,9 @@ val IPPROTO_ICMP = 1
 val IPPROTO_ICMPV6 = 58
 
 val ICMP_ECHO = 8.toShort()
+val ICMPV6_ECHO_REQUEST = 128.toShort()
 val ICMP_ECHOREPLY = 0.toShort()
+val ICMPV6_ECHO_REPLY = 129.toShort()
 
 val SOL_SOCKET = if (isBSD) 0xffff else 1
 
@@ -340,6 +376,32 @@ class Icmp:Struct(runtime) {
    val icmp_dun:Dun = inner(Dun())
    // } icmp_dun
 }
+
+///**
+// * Structure of an icmp6 header
+// */
+//struct icmp6_hdr {
+class Icmp6:Struct(runtime) {
+   // u_char	icmp_type;		/* type of message, see below */
+   // u_char	icmp_code;		/* type sub code */
+   // u_short	icmpCksum;		/* ones complement cksum of struct */
+   val icmp6_type = Unsigned8()
+   val icmp6_code = Unsigned8()
+   val icmp6_cksum = Unsigned16()
+   // union {
+   val icmp6_dataun:Icmp6UnData = inner(Icmp6UnData())
+   // } icmp6_dataun;
+}
+
+//union {
+class Icmp6UnData:Union(runtime) {
+   // u_int32_t icmp6_un_data32[1]; /* type-specific field */
+   // u_int16_t icmp6_un_data16[2]; /* type-specific field */
+   // u_int8_t icmp6_un_data8[4];  /* type-specific field */
+   val icmp6_un_data32 = Array(1, {Unsigned32()})
+   val icmp6_un_data16 = Array(2, {Unsigned16()})
+   val icmp6_un_data8 = Array(4, {Unsigned8()})
+} //} icmp6_dataun;
 
 // See https://opensource.apple.com/source/network_cmds/network_cmds-329.2/ping.tproj/ping.c
 fun icmpCksum(buf:Pointer, len:Int) : Int {

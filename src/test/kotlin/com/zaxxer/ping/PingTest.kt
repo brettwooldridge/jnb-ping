@@ -4,8 +4,7 @@ import com.zaxxer.ping.impl.*
 import com.zaxxer.ping.impl.NativeStatic.Companion.runtime
 import com.zaxxer.ping.impl.util.dumpBuffer
 import jnr.ffi.Struct
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
+import org.junit.Assert.*
 import org.junit.Test
 import java.io.IOException
 import java.net.InetAddress
@@ -53,6 +52,7 @@ class PingTest {
    @Throws(IOException::class)
    fun pingTest1() {
       val semaphore = Semaphore(2)
+      val timeoutTargets = HashSet<PingTarget>()
 
       class PingHandler : PingResponseHandler {
          override fun onResponse(pingTarget : PingTarget, responseTimeSec : Double, byteCount : Int, seq : Int) {
@@ -64,6 +64,7 @@ class PingTest {
 
          override fun onTimeout(pingTarget : PingTarget) {
             println("  ${Thread.currentThread()} Timeout")
+            timeoutTargets.add(pingTarget)
             semaphore.release()
          }
       }
@@ -73,26 +74,32 @@ class PingTest {
       val selectorThread = Thread( {pinger.runSelector()})
       selectorThread.isDaemon = false
       selectorThread.start()
+       
+//      val pingTargets = arrayOf(
+//         PingTarget(InetAddress.getByName("8.8.8.8")),
+//         PingTarget(InetAddress.getByName("youtube.com")),
+//         PingTarget(InetAddress.getByName("2001:4860:4860::8888"))
+//      )
 
-      val pingTargets = arrayOf(
-         PingTarget(InetAddress.getByName("8.8.8.8")),
-         PingTarget(InetAddress.getByName("youtube.com"))
-      )
 
-      for (i in 0..(10 * pingTargets.size)) {
-         if (!semaphore.tryAcquire()) {
-            println("$i: Blocking on semaphore.acquire()")
-            semaphore.acquire()
+       pinger.ping(PingTarget(InetAddress.getByName("8.8.8.8")))
 
-            // TimeUnit.MILLISECONDS.sleep(30)
-         }
-         println("$i: Calling pinger.ping(${pingTargets[i % pingTargets.size].inetAddress})")
-         pinger.ping(pingTargets[i % pingTargets.size])
-      }
+//      for (i in 0..(10 * pingTargets.size)) {
+//         if (!semaphore.tryAcquire()) {
+//            println("$i: Blocking on semaphore.acquire()")
+//            semaphore.acquire()
+//
+//            // TimeUnit.MILLISECONDS.sleep(30)
+//         }
+//         println("$i: Calling pinger.ping(${pingTargets[i % pingTargets.size].inetAddress})")
+//         pinger.ping(pingTargets[i % pingTargets.size])
+//      }
 
       while (pinger.isPendingWork()) Thread.sleep(500)
 
       pinger.stopSelector()
+
+      assertTrue("$timeoutTargets timed out.", timeoutTargets.isEmpty())
    }
 
    @Test

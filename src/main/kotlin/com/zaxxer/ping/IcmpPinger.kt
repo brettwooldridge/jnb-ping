@@ -33,6 +33,7 @@ import jnr.posix.Timeval
 import java.lang.Exception
 import java.lang.System.nanoTime
 import java.net.Inet4Address
+import java.net.Inet6Address
 import java.net.InetAddress
 import java.nio.ByteBuffer
 import java.util.concurrent.LinkedBlockingQueue
@@ -77,7 +78,11 @@ data class PingTarget @JvmOverloads constructor(val inetAddress:InetAddress,
       }
       else {  // IPv6
          isIPv4 = false
-         error("Not implemented")
+         sockAddr = if (isBSD) {
+            BSDSockAddr6(inetAddress as Inet6Address)
+         } else {
+            LinuxSockAddr6(inetAddress as Inet6Address)
+         }
       }
    }
 
@@ -111,6 +116,7 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
    private lateinit var outpacketPointer:Pointer
 
    private lateinit var icmp:Icmp
+   private lateinit var icmp6:Icmp6
    private lateinit var recvIp:Ip
    private lateinit var msgHdr:MsgHdr
 
@@ -182,7 +188,7 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
 
          if (rc > 0) {
             if (FD_ISSET(fd4, writeSet)) processSends(pending4Pings, fd4)
-            if (FD_ISSET(fd6, writeSet)) processSends(pending4Pings, fd6)
+            if (FD_ISSET(fd6, writeSet)) processSends(pending6Pings, fd6)
 
             if (FD_ISSET(fd4, readSet)) processReceives(fd4)
             if (FD_ISSET(fd6, readSet)) processReceives(fd6)
@@ -246,7 +252,11 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
          val pingTarget = pendingPings.peek()
          if (sendIcmp(pingTarget, fd)) {
             pendingPings.take()
-            waitingTarget4Map[pingTarget.sequence] = pingTarget
+            if(pingTarget.isIPv4) {
+               waitingTarget4Map[pingTarget.sequence] = pingTarget
+            } else {
+               waitingTarget6Map[pingTarget.sequence] = pingTarget
+            }
          }
          else {
             pendingPings.take()
@@ -294,18 +304,29 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
 
       pingTarget.sequence = (SEQUENCE_SEQUENCE.getAndIncrement() % 0xffff).toShort()
 
-      icmp.useMemory(outpacketPointer)
-      icmp.icmp_hun.ih_idseq.icd_seq.set(htons(pingTarget.sequence))
-      icmp.icmp_hun.ih_idseq.icd_id.set(htons(pingTarget.id))
-      icmp.icmp_type.set(ICMP_ECHO)
-      icmp.icmp_code.set(0)
-      icmp.icmp_cksum.set(0)
-
-      // In BSD we are responsible for the entire payload, including checksum.  Linux mucks with the payload (replacing
-      // the identity field, and therefore recalculates the checksum (so don't waste our time doing it here).
-      if (isBSD) {
-         val cksum = icmpCksum(outpacketPointer, SEND_PACKET_SIZE)
-         icmp.icmp_cksum.set(htons(cksum.toShort()))
+      if(pingTarget.isIPv4) {
+         icmp.useMemory(outpacketPointer)
+         icmp.icmp_hun.ih_idseq.icd_seq.set(htons(pingTarget.sequence))
+         icmp.icmp_hun.ih_idseq.icd_id.set(htons(pingTarget.id))
+         icmp.icmp_type.set(ICMP_ECHO)
+         icmp.icmp_code.set(0)
+         icmp.icmp_cksum.set(0)
+         // In BSD we are responsible for the entire payload, including checksum.  Linux mucks with the payload (replacing
+         // the identity field, and therefore recalculates the checksum (so don't waste our time doing it here).
+         if (isBSD) {
+            val cksum = icmpCksum(outpacketPointer, SEND_PACKET_SIZE)
+            icmp.icmp_cksum.set(htons(cksum.toShort()))
+         }
+      } else {
+         icmp6.useMemory(outpacketPointer)
+         icmp6.icmp6_dataun.icmp6_un_data32[0].set(htons(pingTarget.sequence))
+         icmp6.icmp6_type.set(ICMPV6_ECHO_REQUEST)
+         icmp6.icmp6_code.set(0)
+         icmp6.icmp6_cksum.set(0)
+         if (isBSD) {
+            val cksum = icmpCksum(outpacketPointer, SEND_PACKET_SIZE)
+            icmp6.icmp6_cksum.set(htons(cksum.toShort()))
+         }
       }
 
       LOGGER.finest({dumpBuffer(message = "Send buffer:", buffer = socketBuffer)})
@@ -333,11 +354,18 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
          cc -= headerLen
 
          icmp.useMemory(socketBufferPointer.slice(headerLen.toLong()))
-         if (icmp.icmp_type.get() != ICMP_ECHOREPLY) {
+         icmp6.useMemory(socketBufferPointer)
+
+         if (icmp.icmp_type.get() != ICMP_ECHOREPLY && icmp6.icmp6_type.get() != ICMPV6_ECHO_REPLY) {
             LOGGER.fine({"   ^ Opps, not our response."})
          }
          else {
-            val seq = ntohs(icmp.icmp_hun.ih_idseq.icd_seq.shortValue())
+            val seq = if(icmp.icmp_type.get() == ICMP_ECHOREPLY) {
+               ntohs(icmp.icmp_hun.ih_idseq.icd_seq.shortValue())
+            } else {
+               ntohs(icmp6.icmp6_dataun.icmp6_un_data32[0].shortValue())
+            }
+
             waitingTarget4Map
                .remove(seq)
                ?.let { pingTarget ->
@@ -346,6 +374,14 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
 
                   responseHandler.onResponse(pingTarget, triptime, cc, seq.toInt())
                }
+            waitingTarget6Map
+               .remove(seq)
+               ?.let { pingTarget ->
+                  val elapsedus = NANOSECONDS.toMicros(nanoTime() - pingTarget.timestampNs)
+                  val triptime = elapsedus.toDouble() / 1_000_000.0
+
+                  responseHandler.onResponse(pingTarget, triptime, cc, seq.toInt())
+            }
          }
       }
       else {
@@ -375,8 +411,8 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
       if (fd4 < 0)
          error("Unable to create IPv4 socket.  If this is Linux, you might need to set sysctl net.ipv4.ping_group_range")
       fd6 = libc.socket(PF_INET6, SOCK_DGRAM, IPPROTO_ICMPV6)
-//      if (fd6 < 0)
-//         error("Unable to create IPv6 socket.  If this is Linux, you might need to set sysctl net.ipv6.ping_group_range")
+      if (fd6 < 0)
+         error("Unable to create IPv6 socket.  If this is Linux, you might need to set sysctl net.ipv6.ping_group_range")
 
       val on = IntByReference(1)
       libc.setsockopt(fd4, SOL_SOCKET, SO_TIMESTAMP, on, on.nativeSize(runtime))
@@ -422,6 +458,8 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
 
       icmp = Icmp()
       icmp.useMemory(outpacketPointer)
+
+      icmp6 = Icmp6()
 
       recvIp = Ip()
       recvIp.useMemory(socketBufferPointer)
