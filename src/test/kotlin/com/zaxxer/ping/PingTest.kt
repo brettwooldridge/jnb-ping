@@ -5,6 +5,7 @@ import com.zaxxer.ping.impl.NativeStatic.Companion.runtime
 import com.zaxxer.ping.impl.util.dumpBuffer
 import jnr.ffi.Struct
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.IOException
 import java.net.InetAddress
@@ -93,4 +94,40 @@ class PingTest {
 
       pinger.stopSelector()
    }
+
+   @Test
+   @Throws(IOException::class)
+   fun testPingFailure() {
+
+      var timedOut = false
+
+      class PingHandler : PingResponseHandler {
+
+         override fun onResponse(pingTarget: PingTarget, responseTimeSec: Double, byteCount: Int, seq: Int) {
+            println("  ${Thread.currentThread()} Success response unexpected.")
+         }
+
+         override fun onTimeout(pingTarget : PingTarget) {
+            println("  ${Thread.currentThread()} Timeout")
+            timedOut = true
+         }
+
+      }
+
+      val pinger = IcmpPinger(PingHandler())
+
+      val selectorThread = Thread( {pinger.runSelector()})
+      selectorThread.isDaemon = false
+      selectorThread.start()
+
+      // Ping a non existing ip address
+      pinger.ping(PingTarget(InetAddress.getByName("240.0.0.0")))
+
+      while (pinger.isPendingWork()) Thread.sleep(500)
+
+      pinger.stopSelector()
+
+      assertTrue("Ping didn't timeout as expected.", timedOut)
+   }
+
 }
