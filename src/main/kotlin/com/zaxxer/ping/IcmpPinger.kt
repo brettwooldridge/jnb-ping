@@ -249,6 +249,8 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
             waitingTarget4Map[pingTarget.sequence] = pingTarget
          }
          else {
+            pendingPings.take()
+            responseHandler.onTimeout(pingTarget)
             break
          }
       }
