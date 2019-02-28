@@ -6,8 +6,5 @@ cache:
 jdk:
   - oraclejdk8
 
-install:
-  - mvn package -DskipTests=true -Dmaven.javadoc.skip=true -V -B
-
 script:
-  - mvn test -B -V
+  - ./gradlew
