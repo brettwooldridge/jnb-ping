@@ -10,10 +10,13 @@ cache:
     - $HOME/.gradle/wrapper/
 jdk:
   - openjdk11
-    
+
+env:
+  global:
+  - GRADLE_OPTS=-Dorg.gradle.daemon=false
+
 install: /bin/true
 
 script:
-  - mkdir -p ~/.gradle && echo "org.gradle.daemon=false" >> ~/.gradle/gradle.properties
   - ping -c 2 8.8.8.8
-  - ./gradlew --no-daemon build
+  - ./gradlew build
