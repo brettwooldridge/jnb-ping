@@ -13,7 +13,7 @@ import java.util.concurrent.Semaphore
 
 class PingTest {
 
-   @Test
+//   @Test
    fun testChecksum() {
       val buffer = ByteBuffer.allocateDirect(64)
 
@@ -30,7 +30,7 @@ class PingTest {
       assertEquals(996, icmpCksum(pointer, 64))
    }
 
-   @Test
+//   @Test
    fun testSizesAndAlignments() {
       assertEquals(20, Struct.size(Ip()))
       assertEquals(28, Struct.size(Icmp()))
@@ -52,12 +52,13 @@ class PingTest {
    @Throws(IOException::class)
    fun pingTest1() {
       val semaphore = Semaphore(2)
+      val successTargets = HashSet<PingTarget>()
       val timeoutTargets = HashSet<PingTarget>()
 
       class PingHandler : PingResponseHandler {
          override fun onResponse(pingTarget : PingTarget, responseTimeSec : Double, byteCount : Int, seq : Int) {
             System.out.printf("  ${Thread.currentThread()} $byteCount bytes from $pingTarget: icmp_seq=$seq time=%1.6f\n", responseTimeSec)
-
+            successTargets.add(pingTarget)
             println("  ${Thread.currentThread()} Calling semaphore.release()\n")
             semaphore.release()
          }
@@ -83,6 +84,7 @@ class PingTest {
 
 
        pinger.ping(PingTarget(InetAddress.getByName("8.8.8.8")))
+       pinger.ping(PingTarget(InetAddress.getByName("2001:4860:4860::8888")))
 
 //      for (i in 0..(10 * pingTargets.size)) {
 //         if (!semaphore.tryAcquire()) {
@@ -99,6 +101,7 @@ class PingTest {
 
       pinger.stopSelector()
 
+      assertTrue(successTargets.size == 2)
       assertTrue("$timeoutTargets timed out.", timeoutTargets.isEmpty())
    }
 
