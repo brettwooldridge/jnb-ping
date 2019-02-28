@@ -1,6 +1,6 @@
 dist: xenial
 language: java
-sudo: false
+sudo: true
 before_cache:
   - rm -f  $HOME/.gradle/caches/modules-2/modules-2.lock
   - rm -fr $HOME/.gradle/caches/*/plugin-resolution/
@@ -18,5 +18,7 @@ env:
 install: /bin/true
 
 script:
-  - ping -c 2 8.8.8.8
+  - ping6 -c 2 ipv6.google.com
+  - sudo sysctl -w net.ipv4.ping_group_range="0 9999"
+  - cat /proc/net/if_inet6
   - ./gradlew build
