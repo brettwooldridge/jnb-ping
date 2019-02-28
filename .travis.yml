@@ -23,5 +23,5 @@ before_script:
 script:
   - sudo sysctl -w net.ipv4.ping_group_range="0 9999"
   - cat /proc/net/if_inet6
-  - ping6 -c 2 ipv6.google.com
+  - ping6 -c 2 -I ens4 ipv6.google.com
   - ./gradlew build
