@@ -57,16 +57,22 @@ class PingTest {
 
       class PingHandler : PingResponseHandler {
          override fun onResponse(pingTarget : PingTarget, responseTimeSec : Double, byteCount : Int, seq : Int) {
-            System.out.printf("  ${Thread.currentThread()} $byteCount bytes from $pingTarget: icmp_seq=$seq time=%1.6f\n", responseTimeSec)
-            successTargets.add(pingTarget)
-            println("  ${Thread.currentThread()} Calling semaphore.release()\n")
-            semaphore.release()
+            try {
+               System.out.printf("  ${Thread.currentThread()} $byteCount bytes from $pingTarget: icmp_seq=$seq time=%1.6f\n", responseTimeSec)
+               successTargets.add(pingTarget)
+               println("  ${Thread.currentThread()} Calling semaphore.release()\n")
+            }  finally {
+               semaphore.release()
+            }
          }
 
          override fun onTimeout(pingTarget : PingTarget) {
-            println("  ${Thread.currentThread()} Timeout")
-            timeoutTargets.add(pingTarget)
-            semaphore.release()
+            try {
+               println("  ${Thread.currentThread()} Timeout")
+               timeoutTargets.add(pingTarget)
+            } finally {
+                semaphore.release()
+            }
          }
       }
 
@@ -84,7 +90,6 @@ class PingTest {
 
 
        pinger.ping(PingTarget(InetAddress.getByName("8.8.8.8")))
-       pinger.ping(PingTarget(InetAddress.getByName("2001:4860:4860::8888")))
 
 //      for (i in 0..(10 * pingTargets.size)) {
 //         if (!semaphore.tryAcquire()) {
