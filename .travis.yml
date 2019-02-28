@@ -9,8 +9,7 @@ cache:
     - $HOME/.gradle/caches/
     - $HOME/.gradle/wrapper/
 jdk:
-  - oraclejdk8
-
+  - openjdk11
     
 script:
   - ./gradlew build
