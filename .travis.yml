@@ -17,6 +17,9 @@ env:
 
 install: /bin/true
 
+before_script:
+  - sudo sh -c 'echo 0 > /proc/sys/net/ipv6/conf/all/disable_ipv6'
+
 script:
   - ping6 -c 2 ipv6.google.com
   - sudo sysctl -w net.ipv4.ping_group_range="0 9999"
