@@ -12,4 +12,4 @@ jdk:
 
     
 script:
-  - ./gradlew
+  - ./gradlew build
