@@ -11,6 +11,9 @@ cache:
 jdk:
   - openjdk11
     
+install: /bin/true
+
 script:
+  - mkdir -p ~/.gradle && echo "org.gradle.daemon=false" >> ~/.gradle/gradle.properties
   - ping -c 2 8.8.8.8
   - ./gradlew --no-daemon build
