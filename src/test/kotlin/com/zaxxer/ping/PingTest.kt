@@ -90,6 +90,7 @@ class PingTest {
 
 
        pinger.ping(PingTarget(InetAddress.getByName("8.8.8.8")))
+       pinger.ping(PingTarget(InetAddress.getByName("::1")))
        pinger.ping(PingTarget(InetAddress.getByName("2001:4860:4860::8888")))
 
 //      for (i in 0..(10 * pingTargets.size)) {
