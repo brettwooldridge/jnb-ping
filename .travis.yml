@@ -1,6 +1,7 @@
 dist: xenial
 language: java
-sudo: true
+sudo: false
+
 before_cache:
   - rm -f  $HOME/.gradle/caches/modules-2/modules-2.lock
   - rm -fr $HOME/.gradle/caches/*/plugin-resolution/
@@ -18,10 +19,12 @@ env:
 install: /bin/true
 
 before_script:
-  - sudo sh -c 'echo 0 > /proc/sys/net/ipv6/conf/all/disable_ipv6'
+  - if [ "${TRAVIS_OS_NAME}" == "linux" ]; then 
+      sudo sh -c 'echo 0 > /proc/sys/net/ipv6/conf/all/disable_ipv6';
+    fi
 
 script:
   - sudo sysctl -w net.ipv4.ping_group_range="0 9999"
-  - cat /proc/net/if_inet6
+  - travis_wait 30 cat /proc/net/if_inet6
   - ping6 -c 2 ff02::2%ens4
   - ./gradlew build
