@@ -12,4 +12,4 @@ jdk:
   - openjdk11
     
 script:
-  - ./gradlew build
+  - ./gradlew --no-daemon build
