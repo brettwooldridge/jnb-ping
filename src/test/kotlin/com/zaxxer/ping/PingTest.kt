@@ -108,7 +108,7 @@ class PingTest {
       pinger.stopSelector()
 
       assertTrue("$timeoutTargets timed out.", timeoutTargets.isEmpty())
-      assertTrue(successTargets.size == 2)
+      assertTrue("Some ping targets failed. Succeeded targets ${successTargets}", successTargets.size == 2)
    }
 
 //   @Test
