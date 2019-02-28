@@ -12,4 +12,5 @@ jdk:
   - openjdk11
     
 script:
+  - ping -c 2 8.8.8.8
   - ./gradlew --no-daemon build
