@@ -22,5 +22,6 @@ script:
   - sudo sysctl -w net.ipv6.conf.all.disable_ipv6=0
   - sudo sysctl -w net.ipv6.conf.default.disable_ipv6=0
   - cat /proc/net/if_inet6
+  - ping6 -c 2 ::1
   - ping6 -c 2 2001:4860:4860::8888
   - ./gradlew build --info
