@@ -19,6 +19,6 @@ install: /bin/true
 
 script:
   - sudo sysctl -w net.ipv4.ping_group_range="0 9999"
-  - sudo sysctl -w net.ipv6.ping_group_range="0 9999"
+#  - sudo sysctl -w net.ipv6.ping_group_range="0 9999"
   - ping -c 2 8.8.8.8
   - ./gradlew build --info
