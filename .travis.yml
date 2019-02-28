@@ -26,6 +26,6 @@ before_script:
 
 script:
   - sudo sysctl -w net.ipv4.ping_group_range="0 9999"
-  - cat /proc/net/if_inet6
-  - ping6 -c 2 -I ens4 2404:6800:4004:81b::200e
+  - ip addr
+  - ping6 -c 2 "2404:6800:4004:81b::200e%ens4"
   - ./gradlew build
