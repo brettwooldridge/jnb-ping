@@ -19,4 +19,5 @@ install: /bin/true
 
 script:
   - sudo sysctl -w net.ipv4.ping_group_range="0 9999"
+  - cat /proc/net/if_inet6
   - ./gradlew build
