@@ -19,11 +19,13 @@ env:
 install: /bin/true
 
 before_script:
-  - if [ "${TRAVIS_OS_NAME}" == "linux" ]; then sudo sh -c 'echo 0 > /proc/sys/net/ipv6/conf/all/disable_ipv6'; fi
+  - if [ "${TRAVIS_OS_NAME}" == "linux" ]; then
+      sudo sh -c 'echo 0 > /proc/sys/net/ipv6/conf/all/disable_ipv6';
+    fi
   - sleep 5s
 
 script:
   - sudo sysctl -w net.ipv4.ping_group_range="0 9999"
   - cat /proc/net/if_inet6
-  - ping6 -c 2 2404:6800:4004:81b::200e%ens4
+  - ping6 -c 2 -I ens4 2404:6800:4004:81b::200e
   - ./gradlew build
