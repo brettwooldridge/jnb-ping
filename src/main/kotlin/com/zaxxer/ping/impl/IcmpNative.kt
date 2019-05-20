@@ -167,19 +167,20 @@ fun htonl(value:Long) : Long {
           ((value and 0x000000ff) shl 24)
 }
 
-// #define __DARWIN_FD_SETSIZE   1024
+// typedef long int __fd_mask;
+// #define __DARWIN_FD_SETSIZE   8192
 // #define __DARWIN_NBBY            8                                /* bits in a byte */
-// #define __DARWIN_NFDBITS      (sizeof(__int32_t) * __DARWIN_NBBY) /* bits per mask */
+// #define __DARWIN_NFDBITS      (sizeof(__fd_mask) * __DARWIN_NBBY) /* bits per mask */
 //
-// --> __DARWIN_NFDBITS = 4 * 8 = 32
-// --> __DARWIN_howmany = __DARWIN_FD_SETSIZE / __DARWIN_NFDBITS = 1024 / 32 = 32
+// --> __DARWIN_NFDBITS = 8 * 8 = 64
+// --> __DARWIN_howmany = __DARWIN_FD_SETSIZE / __DARWIN_NFDBITS = 8192 / 64 = 128
 //
 // typedef struct fd_set {
-//    __int32_t  fds_bits[__DARWIN_howmany(__DARWIN_FD_SETSIZE, __DARWIN_NFDBITS)];
+//    __fd_mask  fds_bits[__DARWIN_howmany(__DARWIN_FD_SETSIZE, __DARWIN_NFDBITS)];
 // } fd_set;
 class Fd_set:Struct(runtime) {
 
-   @field:JvmField val fds_bits:Array<out Signed32> = Array(32, { Signed32() })
+   @field:JvmField val fds_bits: Array<out Signed64> = Array(128, { Signed64() })
 
    init {
       val memory = this.runtime.memoryManager.allocateDirect(size(this))
@@ -190,21 +191,21 @@ class Fd_set:Struct(runtime) {
 val SIZEOF_FD_SET = Struct.size(Fd_set()).toLong()
 
 fun FD_SET(fd:Int, fd_set:Fd_set) {
-   // ((fd_set*)->fds_bits[ (unsigned long)__fd / 32 ] |= ((__int32_t) (((unsigned long) 1) << ((unsigned long) __fd % 32))))
-   val ndx = fd / 32
+   // ((fd_set*)->fds_bits[ (unsigned long)__fd / __DARWIN_NFDBITS ] |= ((__fd_mask) (((unsigned long) 1) << ((unsigned long) __fd % __DARWIN_NFDBITS))))
+   val ndx = fd / 64
    val currvalue = fd_set.fds_bits[ndx].get()
-   val orValue = (1L shl (fd % 32)).toInt()
+   val orValue = (1L shl (fd % 64))
    val newValue = currvalue or orValue
    fd_set.fds_bits[ndx].set(newValue)
 }
 
 fun FD_ISSET(fd:Int, fd_set:Fd_set) : Boolean {
-   // return (_p->fds_bits[(unsigned long)_n/__DARWIN_NFDBITS] & ((__int32_t)(((unsigned long)1)<<((unsigned long)_n % __DARWIN_NFDBITS))))
-   val ndx = fd / 32
+   // return (_p->fds_bits[(unsigned long)_n/__DARWIN_NFDBITS] & ((__fd_mask)(((unsigned long)1)<<((unsigned long)_n % __DARWIN_NFDBITS))))
+   val ndx = fd / 64
    val currvalue = fd_set.fds_bits[ndx].get()
-   val andValue = (1L shl (fd % 32)).toInt()
+   val andValue = (1L shl (fd % 64))
 
-   return currvalue and andValue != 0
+   return currvalue and andValue != 0L
 }
 
 fun FD_ZERO(fd_set:Fd_set) = Struct.getMemory(fd_set).setMemory(0, SIZEOF_FD_SET, 0)
