@@ -17,13 +17,46 @@
 package com.zaxxer.ping
 
 import com.zaxxer.ping.IcmpPinger.Companion.ID_SEQUENCE
-import com.zaxxer.ping.impl.*
+import com.zaxxer.ping.impl.BSDSockAddr4
+import com.zaxxer.ping.impl.BSDSockAddr6
+import com.zaxxer.ping.impl.DEFAULT_DATALEN
+import com.zaxxer.ping.impl.FD_ISSET
+import com.zaxxer.ping.impl.FD_SET
+import com.zaxxer.ping.impl.FD_ZERO
+import com.zaxxer.ping.impl.F_GETFL
+import com.zaxxer.ping.impl.F_SETFL
+import com.zaxxer.ping.impl.Fd_set
+import com.zaxxer.ping.impl.ICMPV6_ECHO_REPLY
+import com.zaxxer.ping.impl.ICMPV6_ECHO_REQUEST
+import com.zaxxer.ping.impl.ICMP_ECHO
+import com.zaxxer.ping.impl.ICMP_ECHOREPLY
+import com.zaxxer.ping.impl.ICMP_MINLEN
+import com.zaxxer.ping.impl.IPPROTO_ICMP
+import com.zaxxer.ping.impl.IPPROTO_ICMPV6
+import com.zaxxer.ping.impl.Icmp
+import com.zaxxer.ping.impl.Icmp6
+import com.zaxxer.ping.impl.Ip
+import com.zaxxer.ping.impl.LinuxSockAddr4
+import com.zaxxer.ping.impl.LinuxSockAddr6
 import com.zaxxer.ping.impl.NativeStatic.Companion.isBSD
 import com.zaxxer.ping.impl.NativeStatic.Companion.libc
 import com.zaxxer.ping.impl.NativeStatic.Companion.posix
 import com.zaxxer.ping.impl.NativeStatic.Companion.runtime
+import com.zaxxer.ping.impl.O_NONBLOCK
+import com.zaxxer.ping.impl.PF_INET
+import com.zaxxer.ping.impl.PF_INET6
+import com.zaxxer.ping.impl.SEND_PACKET_SIZE
+import com.zaxxer.ping.impl.SIZEOF_STRUCT_IP
+import com.zaxxer.ping.impl.SOCK_DGRAM
+import com.zaxxer.ping.impl.SOL_SOCKET
+import com.zaxxer.ping.impl.SO_REUSEPORT
+import com.zaxxer.ping.impl.SO_TIMESTAMP
+import com.zaxxer.ping.impl.SockAddr
+import com.zaxxer.ping.impl.htons
+import com.zaxxer.ping.impl.icmpCksum
+import com.zaxxer.ping.impl.ntohs
+import com.zaxxer.ping.impl.util.WaitingTargetCollection
 import com.zaxxer.ping.impl.util.dumpBuffer
-import it.unimi.dsi.fastutil.shorts.Short2ObjectLinkedOpenHashMap
 import jnr.constants.platform.Errno
 import jnr.ffi.Pointer
 import jnr.ffi.Struct
@@ -36,7 +69,8 @@ import java.net.Inet6Address
 import java.net.InetAddress
 import java.nio.ByteBuffer
 import java.util.concurrent.LinkedBlockingQueue
-import java.util.concurrent.TimeUnit.*
+import java.util.concurrent.TimeUnit.MILLISECONDS
+import java.util.concurrent.TimeUnit.NANOSECONDS
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.logging.Logger
@@ -55,9 +89,9 @@ const val PENDING_QUEUE_SIZE = 8192
 
 typealias FD = Int
 
-data class PingTarget @JvmOverloads constructor(val inetAddress:InetAddress,
-                                                val userObject:Any? = null,
-                                                private val timeoutMs:Long = DEFAULT_TIMEOUT_MS) {
+data class PingTarget @JvmOverloads constructor(val inetAddress: InetAddress,
+                                                val userObject: Any? = null,
+                                                private val timeoutMs: Long = DEFAULT_TIMEOUT_MS) : Comparable<PingTarget> {
 
    internal val id = (ID_SEQUENCE.getAndIncrement() % 0xffff).toShort()
    internal var sequence:Short = 0
@@ -65,6 +99,7 @@ data class PingTarget @JvmOverloads constructor(val inetAddress:InetAddress,
    internal val isIPv4:Boolean
    internal var timestampNs:Long = 0L
    internal var timeout = 0L
+   @Volatile internal var complete = false
 
    init {
       if (inetAddress is Inet4Address) {
@@ -88,21 +123,24 @@ data class PingTarget @JvmOverloads constructor(val inetAddress:InetAddress,
    internal fun timestamp() {
       timestampNs = nanoTime()
       timeout = timestampNs + MILLISECONDS.toNanos(timeoutMs)
+      complete = false
    }
+
+    override fun compareTo(other: PingTarget): Int = timeout.compareTo(other.timeout)
 }
 
 interface PingResponseHandler {
-   fun onResponse(pingTarget:PingTarget, responseTimeSec:Double, byteCount:Int, seq:Int)
+   fun onResponse(pingTarget: PingTarget, responseTimeSec: Double, byteCount: Int, seq: Int)
 
-   fun onTimeout(pingTarget:PingTarget)
+   fun onTimeout(pingTarget: PingTarget)
 }
 
 private val LOGGER = Logger.getLogger(IcmpPinger::class.java.name)
 
 class IcmpPinger(private val responseHandler:PingResponseHandler) {
 
-   private val waitingTarget4Map = Short2ObjectLinkedOpenHashMap<PingTarget>()
-   private val waitingTarget6Map = Short2ObjectLinkedOpenHashMap<PingTarget>()
+   private val waitingTargets4 = WaitingTargetCollection()
+   private val waitingTargets6 = WaitingTargetCollection()
 
    private val pending4Pings = LinkedBlockingQueue<PingTarget>(PENDING_QUEUE_SIZE)
    private val pending6Pings = LinkedBlockingQueue<PingTarget>(PENDING_QUEUE_SIZE)
@@ -148,7 +186,7 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
       buildBuffers()
    }
 
-   fun ping(pingTarget:PingTarget) {
+   fun ping(pingTarget: PingTarget) {
       if (pingTarget.isIPv4) {
          pending4Pings.offer(pingTarget)
       }
@@ -170,14 +208,14 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
       var selectTimeout: Timeval? = infinite
 
       val logPendingPings: () -> String = {"   Pending ping count ${pending4Pings.size + pending6Pings.size}"}
-      val logPendingActor: () -> String = {"   Pending actor count ${waitingTarget4Map.size + waitingTarget6Map.size}"}
+      val logPendingActor: () -> String = {"   Pending actor count ${waitingTargets4.size + waitingTargets6.size}"}
 
       var noopLoops = 0
       while (running) {
          val nfds = maxOf(maxOf(fd4, fd6), pipefd[0]) + 1
          val rc = libc.select(nfds, readSetPtr, writeSetPtr, null /*errorSet*/, selectTimeout)
          if (rc < 0) {
-            LOGGER.fine({"select() returned errno ${posix.errno()}"})
+            LOGGER.fine {"select() returned errno ${posix.errno()}"}
             break
          }
 
@@ -193,8 +231,8 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
             if (FD_ISSET(fd6, readSet)) processReceives(fd6)
          }
 
-         val next4timeoutUsec = processTimeouts(waitingTarget4Map)
-         val next6timeoutUsec = processTimeouts(waitingTarget6Map)
+         val next4timeoutUsec = processTimeouts(waitingTargets4)
+         val next6timeoutUsec = processTimeouts(waitingTargets6)
          val nextTimeoutUsec = maxOf(minOf(next4timeoutUsec, next6timeoutUsec), 500)
 
          timeoutTimeval.sec(nextTimeoutUsec / 1_000_000L)
@@ -203,8 +241,8 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
          LOGGER.fine(logPendingPings)
          LOGGER.fine(logPendingActor)
 
-         val isPending4reads = waitingTarget4Map.isNotEmpty()
-         val isPending6reads = waitingTarget6Map.isNotEmpty()
+         val isPending4reads = waitingTargets4.isNotEmpty()
+         val isPending6reads = waitingTargets6.isNotEmpty()
          val isPending4writes = pending4Pings.isNotEmpty()
          val isPending6writes = pending6Pings.isNotEmpty()
 
@@ -240,7 +278,7 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
       wakeup()
    }
 
-   fun isPendingWork() = pending4Pings.isNotEmpty() || pending6Pings.isNotEmpty() || waitingTarget4Map.isNotEmpty() || waitingTarget6Map.isNotEmpty()
+   fun isPendingWork() = pending4Pings.isNotEmpty() || pending6Pings.isNotEmpty() || waitingTargets4.isNotEmpty() || waitingTargets6.isNotEmpty()
 
    /**********************************************************************************************
     *                                     Private Methods
@@ -252,9 +290,9 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
          if (sendIcmp(pingTarget, fd)) {
             pendingPings.take()
             if (pingTarget.isIPv4) {
-               waitingTarget4Map[pingTarget.sequence] = pingTarget
+               waitingTargets4.add(pingTarget)
             } else {
-               waitingTarget6Map[pingTarget.sequence] = pingTarget
+               waitingTargets6.add(pingTarget)
             }
          }
          else {
@@ -265,40 +303,31 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
       }
    }
 
-   private fun processReceives(fd:FD) {
+   private fun processReceives(fd: FD) {
       do {
          val more = recvIcmp(fd) // read and lookup actor id in map
       } while (more)
    }
 
-   private fun processTimeouts(targets:Short2ObjectLinkedOpenHashMap<PingTarget>) : Long {
-      if (targets.isEmpty()) return DEFAULT_TIMEOUT_USEC
-
-      // Optimization to avoid creation if iterator if nothing is ready to timeout
-      val firstTimeout = targets.get(targets.firstShortKey()).timeout
-      val now = nanoTime()
-      if (now < firstTimeout) return NANOSECONDS.toMicros(firstTimeout - now)
-
-      val iterator = targets.values.iterator()
-      while (iterator.hasNext()) {
-         val pingTarget = iterator.next()
-         if (now < pingTarget.timeout) return NANOSECONDS.toMicros(pingTarget.timeout - now)
+   private fun processTimeouts(targets: WaitingTargetCollection) : Long {
+      while (targets.isNotEmpty()) {
+         val now = nanoTime()
+         val timeout = targets.peekTimeoutQueue() ?: return DEFAULT_TIMEOUT_USEC
+         if (now < timeout) return NANOSECONDS.toMicros(timeout - now)
 
          try {
+            val pingTarget = targets.take()
             responseHandler.onTimeout(pingTarget)
          }
          catch (e:Exception) {
             continue
-         }
-         finally {
-            iterator.remove()
          }
       }
 
       return DEFAULT_TIMEOUT_USEC
    }
 
-   private fun sendIcmp(pingTarget:PingTarget, fd:FD) : Boolean {
+   private fun sendIcmp(pingTarget: PingTarget, fd: FD) : Boolean {
       prebuiltBufferPointer.transferTo(0, socketBufferPointer, 0, BUFFER_SIZE)
 
       pingTarget.sequence = (SEQUENCE_SEQUENCE.getAndIncrement() % 0xffff).toShort()
@@ -328,26 +357,26 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
          }
       }
 
-      LOGGER.finest({dumpBuffer(message = "Send buffer:", buffer = socketBuffer)})
+      LOGGER.finest {dumpBuffer(message = "Send buffer:", buffer = socketBuffer)}
 
       pingTarget.timestamp()
 
       val rc = libc.sendto(fd, outpacketPointer, SEND_PACKET_SIZE, 0, pingTarget.sockAddr, Struct.size(pingTarget.sockAddr))
       return if (rc == SEND_PACKET_SIZE) {
-         LOGGER.fine({"   ICMP packet(seq=${pingTarget.sequence}) send to ${pingTarget.inetAddress} successful"})
-         true
+          LOGGER.fine {"   ICMP packet(seq=${pingTarget.sequence}) send to ${pingTarget.inetAddress} successful"}
+          true
       }
       else {
-         LOGGER.fine({"   icmp sendto() to ${pingTarget.inetAddress} for seq=${pingTarget.sequence} returned $rc"})
-         false
+         LOGGER.fine {"   icmp sendto() to ${pingTarget.inetAddress} for seq=${pingTarget.sequence} returned $rc"}
+          false
       }
    }
 
-   private fun recvIcmp(fd:FD) : Boolean {
+   private fun recvIcmp(fd: FD) : Boolean {
 
-      var cc = posix.recvmsg(fd, msgHdr, 0)
+      val cc = posix.recvmsg(fd, msgHdr, 0)
       if (cc > 0) {
-         LOGGER.finest({dumpBuffer("Ping response", socketBuffer)})
+         LOGGER.finest {dumpBuffer("Ping response", socketBuffer)}
 
          val isV4 = (recvIp.ip_vhl.get().toInt() and 0xf0) shr 4 == 4
 
@@ -359,7 +388,7 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
          val icmpType = icmp.icmp_type.get()
 
          if (icmpType != ICMP_ECHOREPLY && icmpType != ICMPV6_ECHO_REPLY) {
-            LOGGER.fine({ "   ^ Opps, not our response." })
+            LOGGER.fine { "   ^ Opps, not our response." }
          } else {
             val seq = if (icmpType == ICMP_ECHOREPLY) {
                ntohs(icmp.icmp_hun.ih_idseq.icd_seq.shortValue())
@@ -367,7 +396,7 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
                ntohs(icmp6.icmp6_dataun.icmp6_un_data32[0].shortValue())
             }
 
-            waitingTarget4Map
+            waitingTargets4
                .remove(seq)
                ?.let { pingTarget ->
                   val elapsedus = NANOSECONDS.toMicros(nanoTime() - pingTarget.timestampNs)
@@ -375,7 +404,7 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
 
                   responseHandler.onResponse(pingTarget, triptime, cc, seq.toInt())
                }
-            waitingTarget6Map
+            waitingTargets6
                .remove(seq)
                ?.let { pingTarget ->
                   val elapsedus = NANOSECONDS.toMicros(nanoTime() - pingTarget.timestampNs)
@@ -388,7 +417,7 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
       else {
          val errno = posix.errno()
          if (errno != Errno.EINTR.intValue() && errno != Errno.EAGAIN.intValue()) {
-            LOGGER.fine({"   Error code $errno returned from pingChannel.read()"})
+            LOGGER.fine {"   Error code $errno returned from pingChannel.read()"}
          }
       }
 
@@ -470,7 +499,7 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
    }
 }
 
-private fun setNonBlocking(fd:FD) {
+private fun setNonBlocking(fd: FD) {
    val flags4 = libc.fcntl(fd, F_GETFL, 0) or O_NONBLOCK
    libc.fcntl(fd, F_SETFL, flags4)
 }
