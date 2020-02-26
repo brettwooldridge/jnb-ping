@@ -1,6 +1,9 @@
 # jnb-ping - Java Non-Blocking ICMP Ping
 
 [![][Build Status img]][Build Status]
+[![][license img]][license]
+[![][Maven Central img]][Maven Central]
+[![][Javadocs img]][Javadocs]
 
 A non-blocking ICMP library for Java, using JNA to access native APIs, supporting thousands of simultaneous ICMP ping targets.  Written in Kotlin, but compatible with Java
 (or any JVM-hosted language).
@@ -30,3 +33,12 @@ pinger.stopSelector()
 
 [Build Status]:https://travis-ci.org/brettwooldridge/jnb-ping
 [Build Status img]:https://travis-ci.org/brettwooldridge/jnb-ping.svg?branch=master
+
+[license]:LICENSE
+[license img]:https://img.shields.io/badge/license-Apache%202-blue.svg
+
+[Maven Central]:https://maven-badges.herokuapp.com/maven-central/com.zaxxer/jnb-ping
+[Maven Central img]:https://maven-badges.herokuapp.com/maven-central/com.zaxxer/jnb-ping/badge.svg
+
+[Javadocs]:http://javadoc.io/doc/com.zaxxer/jnb-ping
+[Javadocs img]:http://javadoc.io/badge/com.zaxxer/jnb-ping.svg
