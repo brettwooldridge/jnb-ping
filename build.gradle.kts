@@ -6,7 +6,7 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 description = "Java Non-Blocking Ping (ICMP)"
 group = "com.zaxxer"
-version = "1.2.0"
+version = "1.3.0"
 
 plugins {
 	kotlin("jvm") version "1.3.0"
@@ -69,7 +69,7 @@ tasks {
 dependencies {
 	api(kotlin("reflect"))
 	api(kotlin("stdlib-jdk8"))
-    compile("com.github.jnr:jnr-posix:3.0.46")
+    compile("com.github.jnr:jnr-posix:3.0.52")
     compile("it.unimi.dsi:fastutil:8.1.0")
 
     testImplementation("junit:junit:4.12")
@@ -80,7 +80,7 @@ configurations {
 		resolutionStrategy {
 			force("org.jetbrains.kotlin:kotlin-reflect:1.3.0")
 			force("org.jetbrains.kotlin:kotlin-stdlib:1.3.0")
-			force("com.github.jnr:jffi:1.2.17")
+			force("com.github.jnr:jffi:1.2.23")
 
 			failOnVersionConflict()
 		}
@@ -136,6 +136,7 @@ if (ossrhUserName != null && ossrhPassword != null) {
 	}
 
 	signing {
+		useGpgCmd()
 		sign(configurations.archives.get())
 	}
 
