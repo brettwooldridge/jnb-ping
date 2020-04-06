@@ -14,6 +14,8 @@ import java.net.Inet6Address
 import java.net.InetAddress
 import java.nio.ByteBuffer
 import java.util.concurrent.Semaphore
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 class PingTest {
 
@@ -218,6 +220,43 @@ class PingTest {
       pinger.stopSelector()
 
       assertTrue("Ping didn't timeout as expected.", timedOut)
+   }
+
+   @Test
+   fun testSimultaneousRequest() {
+      val pingCount = 2
+
+      val semaphore = Semaphore(pingCount)
+      semaphore.acquireUninterruptibly(pingCount)
+
+      val successCount = AtomicInteger(0)
+      val pinger = IcmpPinger(object : PingResponseHandler {
+         override fun onResponse(pingTarget: PingTarget, responseTimeSec: Double, byteCount: Int, seq: Int) {
+            successCount.incrementAndGet()
+         }
+
+         override fun onTimeout(pingTarget: PingTarget) {
+            semaphore.release()
+         }
+      })
+
+      val selectorThread = Thread {pinger.runSelector()}
+      selectorThread.isDaemon = false
+      selectorThread.start()
+
+      val target = PingTarget(InetAddress.getByName("192.0.2.1"))
+
+      repeat(pingCount) {
+         pinger.ping(target)
+      }
+
+      if (!semaphore.tryAcquire(pingCount, 5, TimeUnit.SECONDS)) {
+         assertEquals("Every ping attempt should have a timeout", pingCount, semaphore.availablePermits())
+      }
+
+      assertEquals("There should be no successful pings", 0, successCount.get())
+
+      pinger.stopSelector()
    }
 
    private fun getIpv6Address() : String {
