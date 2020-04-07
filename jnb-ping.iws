@@ -21,7 +21,10 @@
   <component name="ChangeListManager">
     <list default="true" id="281d2428-a0af-44e0-b51b-418df6b671ba" name="Default" comment="">
       <change beforePath="$PROJECT_DIR$/build.gradle.kts" beforeDir="false" afterPath="$PROJECT_DIR$/build.gradle.kts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jnb-ping.iml" beforeDir="false" afterPath="$PROJECT_DIR$/jnb-ping.iml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/jnb-ping.iws" beforeDir="false" afterPath="$PROJECT_DIR$/jnb-ping.iws" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jnb-ping_main.iml" beforeDir="false" afterPath="$PROJECT_DIR$/jnb-ping_main.iml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jnb-ping_test.iml" beforeDir="false" afterPath="$PROJECT_DIR$/jnb-ping_test.iml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/main/kotlin/com/zaxxer/ping/IcmpPinger.kt" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/kotlin/com/zaxxer/ping/IcmpPinger.kt" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />

@@ -70,8 +70,8 @@
     <orderEntry type="library" name="Gradle: org.ow2.asm:asm-commons:7.1" level="project" />
     <orderEntry type="library" name="Gradle: org.ow2.asm:asm-util:7.1" level="project" />
     <orderEntry type="library" name="Gradle: org.ow2.asm:asm-analysis:7.1" level="project" />
-    <orderEntry type="library" name="Gradle: org.ow2.asm:asm-tree:7.1" level="project" />
     <orderEntry type="library" scope="RUNTIME" name="Gradle: com.github.jnr:jffi:native:1.2.23" level="project" />
+    <orderEntry type="library" name="Gradle: org.ow2.asm:asm-tree:7.1" level="project" />
     <orderEntry type="library" name="Gradle: org.ow2.asm:asm:7.1" level="project" />
     <orderEntry type="library" name="Gradle: com.github.jnr:jnr-a64asm:1.0.0" level="project" />
     <orderEntry type="library" name="Gradle: com.github.jnr:jnr-x86asm:1.0.2" level="project" />
