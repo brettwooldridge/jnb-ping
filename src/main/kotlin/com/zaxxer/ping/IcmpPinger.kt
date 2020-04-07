@@ -93,7 +93,7 @@ typealias FD = Int
 class PingTarget : Comparable<PingTarget> {
    // Assigned at construction
    val inetAddress: InetAddress
-   private val userObject: Any?
+   val userObject: Any?
    private val timeoutMs: Long
    internal val id: Short
    internal val sockAddr: SockAddr

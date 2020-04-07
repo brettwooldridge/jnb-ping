@@ -6,7 +6,7 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 description = "Java Non-Blocking Ping (ICMP)"
 group = "com.zaxxer"
-version = "1.3.1"
+version = "1.3.2"
 
 plugins {
 	kotlin("jvm") version "1.3.70"

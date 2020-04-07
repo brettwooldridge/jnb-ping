@@ -21,11 +21,7 @@
   <component name="ChangeListManager">
     <list default="true" id="281d2428-a0af-44e0-b51b-418df6b671ba" name="Default" comment="">
       <change beforePath="$PROJECT_DIR$/build.gradle.kts" beforeDir="false" afterPath="$PROJECT_DIR$/build.gradle.kts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/jnb-ping.iml" beforeDir="false" afterPath="$PROJECT_DIR$/jnb-ping.iml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/jnb-ping.ipr" beforeDir="false" afterPath="$PROJECT_DIR$/jnb-ping.ipr" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/jnb-ping.iws" beforeDir="false" afterPath="$PROJECT_DIR$/jnb-ping.iws" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/jnb-ping_main.iml" beforeDir="false" afterPath="$PROJECT_DIR$/jnb-ping_main.iml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/jnb-ping_test.iml" beforeDir="false" afterPath="$PROJECT_DIR$/jnb-ping_test.iml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/main/kotlin/com/zaxxer/ping/IcmpPinger.kt" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/kotlin/com/zaxxer/ping/IcmpPinger.kt" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -275,6 +271,10 @@
       <screen x="0" y="23" width="3360" height="1867" />
     </state>
     <state x="1353" y="587" key="#com.intellij.ide.util.MemberChooser/0.23.3360.1867/3360.221.3008.1669/2424.1913.1920.1177@0.23.3360.1867" timestamp="1582181231756" />
+    <state x="661" y="493" key="com.intellij.ide.util.TipDialog" timestamp="1586249277246">
+      <screen x="0" y="23" width="2560" height="1417" />
+    </state>
+    <state x="661" y="493" key="com.intellij.ide.util.TipDialog/0.23.2560.1417@0.23.2560.1417" timestamp="1586249277246" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
