@@ -6,10 +6,10 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 description = "Java Non-Blocking Ping (ICMP)"
 group = "com.zaxxer"
-version = "1.3.0"
+version = "1.3.1"
 
 plugins {
-	kotlin("jvm") version "1.3.0"
+	kotlin("jvm") version "1.3.70"
 	jacoco
 	`java-library`
 	maven

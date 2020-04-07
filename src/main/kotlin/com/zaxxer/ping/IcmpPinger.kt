@@ -89,19 +89,30 @@ const val PENDING_QUEUE_SIZE = 8192
 
 typealias FD = Int
 
-data class PingTarget @JvmOverloads constructor(val inetAddress: InetAddress,
-                                                val userObject: Any? = null,
-                                                private val timeoutMs: Long = DEFAULT_TIMEOUT_MS) : Comparable<PingTarget> {
+@Suppress("SpellCheckingInspection")
+class PingTarget : Comparable<PingTarget> {
+   // Assigned at construction
+   val inetAddress: InetAddress
+   private val userObject: Any?
+   private val timeoutMs: Long
+   internal val id: Short
+   internal val sockAddr: SockAddr
+   internal val isIPv4: Boolean
 
-   internal val id = (ID_SEQUENCE.getAndIncrement() % 0xffff).toShort()
-   internal var sequence:Short = 0
-   internal val sockAddr:SockAddr
-   internal val isIPv4:Boolean
-   internal var timestampNs:Long = 0L
+   // Assigned during operation
+   internal var sequence: Short = 0
+   internal var timestampNs: Long = 0L
    internal var timeout = 0L
    @Volatile internal var complete = false
 
-   init {
+   @JvmOverloads constructor(inetAddress: InetAddress,
+                             userObject: Any? = null,
+                             timeoutMs: Long = DEFAULT_TIMEOUT_MS) {
+      this.inetAddress = inetAddress
+      this.userObject = userObject
+      this.timeoutMs = timeoutMs
+      this.id = 0
+
       if (inetAddress is Inet4Address) {
          isIPv4 = true
          sockAddr = if (isBSD) {
@@ -118,6 +129,15 @@ data class PingTarget @JvmOverloads constructor(val inetAddress: InetAddress,
             LinuxSockAddr6(inetAddress as Inet6Address)
          }
       }
+   }
+
+   internal constructor(pingTarget: PingTarget) {
+      this.inetAddress = pingTarget.inetAddress
+      this.userObject = pingTarget.userObject
+      this.timeoutMs = pingTarget.timeoutMs
+      this.sockAddr = pingTarget.sockAddr
+      this.isIPv4 = pingTarget.isIPv4
+      this.id = (ID_SEQUENCE.getAndIncrement() % 0xffff).toShort()
    }
 
    internal fun timestamp() {
@@ -188,10 +208,10 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
 
    fun ping(pingTarget: PingTarget) {
       if (pingTarget.isIPv4) {
-         pending4Pings.offer(pingTarget)
+         pending4Pings.offer(PingTarget(pingTarget))
       }
       else {
-         pending6Pings.offer(pingTarget)
+         pending6Pings.offer(PingTarget(pingTarget))
       }
 
       if (awoken.compareAndSet(false, true)) {
