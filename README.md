@@ -5,8 +5,7 @@
 [![][Maven Central img]][Maven Central]
 [![][Javadocs img]][Javadocs]
 
-A non-blocking ICMP library for Java, using JNA to access native APIs, supporting thousands of simultaneous ICMP ping targets.  Written in Kotlin, but compatible with Java
-(or any JVM-hosted language).
+A non-blocking ICMP library for Java, using JNA to access native APIs, supporting thousands of simultaneous ICMP ping targets.  Written in Kotlin, but compatible with Java (or any JVM-hosted language).
 
 Currently, only Linux and MacOS X are supported.
 
@@ -30,6 +29,8 @@ while (pinger.isPendingWork()) Thread.sleep(500)
 
 pinger.stopSelector()
 ```
+
+The minimum supported Linux kernel version is v4.19.10. It *may* work with older kernels (some reported working on v3.13.), depending on the kernel configuration parameters, but only v4.19.10+ has been tested. I am fairly certain that IPv6 is not supported (by this library) on any Linux kernel version less than v4.19.
 
 [Build Status]:https://travis-ci.org/brettwooldridge/jnb-ping
 [Build Status img]:https://travis-ci.org/brettwooldridge/jnb-ping.svg?branch=master
