@@ -22,10 +22,14 @@ class PingHandler : PingResponseHandler {
 }
 
 val pinger = IcmpPinger(PingHandler())
+
+Thread() {
+   pinger.runSelector()
+}.start()
+
 pinger.ping( PingTarget(InetAddress.getByName("8.8.8.8")) )
 pinger.ping( PingTarget(InetAddress.getByName("youtube.com")) )
 
-pinger.runSelector()
 while (pinger.isPendingWork()) Thread.sleep(500)
 
 pinger.stopSelector()
