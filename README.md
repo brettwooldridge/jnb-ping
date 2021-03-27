@@ -9,7 +9,7 @@ A non-blocking ICMP library for Java, using JNA to access native APIs, supportin
 
 Currently, only Linux and MacOS X are supported.
 
-Example:
+Example (Kotlin):
 ```kotlin
 class PingHandler : PingResponseHandler {
    override fun onResponse(pingTarget: PingTarget, responseTimeSec: Double, byteCount: Int, seq: Int) {
