@@ -1,0 +1,31 @@
+load("@io_bazel_rules_kotlin//kotlin:core.bzl", "define_kt_toolchain", "kt_javac_options", "kt_kotlinc_options")
+
+kt_kotlinc_options(
+    name = "kt_kotlinc_options",
+    x_lambdas = "indy",
+    x_optin = ["kotlin.Experimental"],
+    x_sam_conversions = "class",
+)
+
+define_kt_toolchain(
+    name = "kotlin_toolchain",
+    api_version = "1.7",
+    # experimental_use_abi_jars = True,
+    jvm_target = "11",
+    kotlinc_options = "//:kt_kotlinc_options",
+    language_version = "1.7",
+)
+
+# Use this to override "kt_kotlinc_options" in specific kt_jvm_library rules to generate maximum performance bytecode
+# by disabling code generation of various runtime sanity checks.
+#
+kt_kotlinc_options(
+    name = "kt_kotlinc_perf_options",
+    visibility = ["//visibility:public"],
+    x_lambdas = "indy",
+    x_no_call_assertions = True,
+    x_no_param_assertions = True,
+    x_no_receiver_assertions = True,
+    x_optin = ["kotlin.Experimental"],
+    x_sam_conversions = "class",
+)

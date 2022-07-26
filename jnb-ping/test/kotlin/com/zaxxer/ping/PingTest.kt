@@ -17,11 +17,11 @@ import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
+@Suppress("DuplicatedCode")
 class PingTest {
-
-   val runtime:jnr.ffi.Runtime = jnr.ffi.Runtime.getSystemRuntime()!!
-   val platform: Platform = Platform.getNativePlatform()
-   val isBSD = platform.isBSD
+   private val runtime:jnr.ffi.Runtime = jnr.ffi.Runtime.getSystemRuntime()!!
+   private val platform: Platform = Platform.getNativePlatform()
+   private val isBSD = platform.isBSD
 
    @Test
    fun testChecksum() {
@@ -53,7 +53,7 @@ class PingTest {
       val buffer = ByteBuffer.allocateDirect(1024)
       val fdSet = Fd_set()
       fdSet.useMemory(runtime.memoryManager.newPointer(buffer))
-      
+
       FD_SET(76, fdSet)
       dumpBuffer("fd_set memory dump:", buffer)
       assertEquals(4096, fdSet.fds_bits[1].get())
@@ -110,7 +110,7 @@ class PingTest {
 
       val pinger = IcmpPinger(PingHandler())
 
-      val selectorThread = Thread( {pinger.runSelector()})
+      val selectorThread = Thread { pinger.runSelector() }
       selectorThread.isDaemon = false
       selectorThread.start()
 
@@ -160,13 +160,13 @@ class PingTest {
 
       val pinger = IcmpPinger(PingHandler())
 
-      val selectorThread = Thread( {pinger.runSelector()})
+      val selectorThread = Thread { pinger.runSelector() }
       selectorThread.isDaemon = false
       selectorThread.start()
 
       val pingTargets = ArrayList<PingTarget>()
       if (isBSD) {
-         pingTargets.add(PingTarget(InetAddress.getByName("2001:4860:4860::8888")))
+         pingTargets.add(PingTarget(InetAddress.getByName("2600::")))
       } else {
          pingTargets.add(PingTarget(InetAddress.getByName(getIpv6Address())))
       }
@@ -208,7 +208,7 @@ class PingTest {
 
       val pinger = IcmpPinger(PingHandler())
 
-      val selectorThread = Thread( {pinger.runSelector()})
+      val selectorThread = Thread { pinger.runSelector() }
       selectorThread.isDaemon = false
       selectorThread.start()
 

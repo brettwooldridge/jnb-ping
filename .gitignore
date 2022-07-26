@@ -1,5 +1,3 @@
 .idea
-target
-.gradle
-build
-out
+.ijwb
+bazel-*

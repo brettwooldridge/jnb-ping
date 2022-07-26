@@ -22,7 +22,7 @@ import java.util.Formatter
 const val MAX_VISIBLE = 127
 const val MIN_VISIBLE = 31
 
-internal fun dumpBuffer(message:String, buffer:ByteBuffer, offset:Int = 0) : String {
+fun dumpBuffer(message:String, buffer:ByteBuffer, offset:Int = 0) : String {
    val tmpBuffer = buffer.duplicate()
    tmpBuffer.position(offset)
 
@@ -62,7 +62,7 @@ fun dump(displayOffset:Int, data:ByteArray, offset:Int, len:Int) : String {
          if (dataNdx < maxDataNdx) {
             val b = data[dataNdx++]
             formatter.format("%02x ", b)
-            ascii.append(if (b > MIN_VISIBLE && b < MAX_VISIBLE) b.toChar() else ' ')
+            ascii.append(if (b in (MIN_VISIBLE + 1) until MAX_VISIBLE) b.toInt().toChar() else ' ')
          }
          else {
             sb.append("   ")
