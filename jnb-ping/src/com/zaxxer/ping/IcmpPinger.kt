@@ -521,5 +521,5 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
 
 private fun setNonBlocking(fd: FD) {
    val flags4 = libc.fcntl(fd, F_GETFL, 0) or O_NONBLOCK
-   libc.fcntl(fd, F_SETFL, flags4)
+   libc.fcntl(fd, F_SETFL, flags4.toLong())
 }
