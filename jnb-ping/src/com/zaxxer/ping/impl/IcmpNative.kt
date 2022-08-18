@@ -29,6 +29,7 @@ import jnr.constants.platform.AddressFamily.AF_INET6
 import jnr.ffi.*
 import jnr.ffi.annotations.In
 import jnr.ffi.annotations.Out
+import jnr.ffi.annotations.Variadic
 import jnr.ffi.byref.IntByReference
 import jnr.ffi.types.size_t
 import jnr.ffi.types.socklen_t
@@ -161,7 +162,8 @@ interface LibC {
 
    fun setsockopt(fd:Int, level:Int, option:Int, @In value:IntByReference, @socklen_t len:Int) : Int
 
-   fun fcntl(fd:Int, cmd:Int, data:Int) : Int
+   @Variadic(fixedCount = 2)
+   fun fcntl(fd:Int, cmd:Int, data:Long) : Int
 
    fun pipe(@Out fds:IntArray) : Int
 
