@@ -32,30 +32,3 @@ kotlin_test(
         "@maven//:junit_junit",
     ],
 )
-
-load("@graknlabs_bazel_distribution//maven/templates:rules.bzl", "assemble_maven", "deploy_maven")
-
-assemble_maven(
-    name = "assemble-maven",
-    developers = {
-        "1": [
-            "name=Brett Wooldridge",
-            "email=brett.wooldridge@gmail.com",
-            "organization=com.zaxxer",
-        ],
-    },
-    license = "apache",
-    package = "{maven_packages}",
-    project_description = "Java Non-Blocking Ping (ICMP)",
-    project_name = "jnb-ping",
-    project_url = "https://github.com/brettwooldridge/jnb-ping",
-    scm_url = "https://github.com/brettwooldridge/jnb-ping.git",
-    target = ":com-zaxxer-ping",
-    version_file = "//central-sync:VERSION",
-)
-
-deploy_maven(
-    name = "deploy-maven",
-    deployment_properties = "//central-sync:deployment.properties",
-    target = ":assemble-maven",
-)

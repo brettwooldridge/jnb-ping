@@ -83,13 +83,13 @@ register_toolchains("//:kotlin_toolchain")
 #
 ################################################################################################
 
-load("@jnb-ping//central-sync:dependencies.bzl", "graknlabs_bazel_distribution")
-
-graknlabs_bazel_distribution()
-
-http_archive(
-    name = "rules_python",
-    sha256 = "a3a6e99f497be089f81ec082882e40246bfd435f52f4e82f37e89449b04573f6",
-    strip_prefix = "rules_python-0.10.2",
-    url = "https://github.com/bazelbuild/rules_python/archive/refs/tags/0.10.2.tar.gz",
-)
+#load("@jnb-ping//central-sync:dependencies.bzl", "graknlabs_bazel_distribution")
+#
+#graknlabs_bazel_distribution()
+#
+#http_archive(
+#    name = "rules_python",
+#    sha256 = "a3a6e99f497be089f81ec082882e40246bfd435f52f4e82f37e89449b04573f6",
+#    strip_prefix = "rules_python-0.10.2",
+#    url = "https://github.com/bazelbuild/rules_python/archive/refs/tags/0.10.2.tar.gz",
+#)
