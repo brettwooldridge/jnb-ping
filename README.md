@@ -35,8 +35,8 @@ pinger.stopSelector()
 
 The minimum supported Linux kernel version is v4.19.10. It *may* work with older kernels (some reported working on v3.13.), depending on the kernel configuration parameters, but only v4.19.10+ has been tested. I am fairly certain that IPv6 is not supported (by this library) on any Linux kernel version less than v4.19.
 
-[Build Status]:https://travis-ci.org/brettwooldridge/jnb-ping
-[Build Status img]:https://travis-ci.org/brettwooldridge/jnb-ping.svg?branch=master
+[Build Status]:https://circleci.com/gh/brettwooldridge/jnb-ping
+[Build Status img]:https://circleci.com/gh/brettwooldridge/jnb-ping.svg?style=shield
 
 [license]:LICENSE
 [license img]:https://img.shields.io/badge/license-Apache%202-blue.svg
