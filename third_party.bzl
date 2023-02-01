@@ -2,7 +2,7 @@ load("@rules_jvm_external//:defs.bzl", "maven_install")
 load("@rules_jvm_external//:specs.bzl", "maven", "parse")
 load("//:import_external_alias.bzl", "import_external_alias")
 
-KOTLIN_VERSION = "1.7.0"
+KOTLIN_VERSION = "1.7.21"
 
 def dependency(coordinates, exclusions = None):
     artifact = parse.parse_maven_coordinate(coordinates)

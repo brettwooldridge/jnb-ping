@@ -3,9 +3,9 @@ workspace(name = "jnb-ping")
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 load("@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository")
 
-RULES_JVM_EXTERNAL_TAG = "4.2"
+RULES_JVM_EXTERNAL_TAG = "4.4.2"
 
-RULES_JVM_EXTERNAL_SHA = "cd1a77b7b02e8e008439ca76fd34f5b07aecb8c752961f9640dea15e9e5ba1ca"
+RULES_JVM_EXTERNAL_SHA = "735602f50813eb2ea93ca3f5e43b1959bd80b213b836a07a62a29d757670b77b"
 
 http_archive(
     name = "rules_jvm_external",
@@ -24,10 +24,10 @@ rules_jvm_external_setup()
 
 http_archive(
     name = "rules_pkg",
-    sha256 = "62eeb544ff1ef41d786e329e1536c1d541bb9bcad27ae984d57f18f314018e66",
+    sha256 = "eea0f59c28a9241156a47d7a8e32db9122f3d50b505fae0f33de6ce4d9b61834",
     urls = [
-        "https://github.com/bazelbuild/rules_pkg/releases/download/0.6.0/rules_pkg-0.6.0.tar.gz",
-        "https://mirror.bazel.build/github.com/bazelbuild/rules_pkg/releases/download/0.6.0/rules_pkg-0.6.0.tar.gz",
+        "https://mirror.bazel.build/github.com/bazelbuild/rules_pkg/releases/download/0.8.0/rules_pkg-0.8.0.tar.gz",
+        "https://github.com/bazelbuild/rules_pkg/releases/download/0.8.0/rules_pkg-0.8.0.tar.gz",
     ],
 )
 
@@ -38,6 +38,14 @@ rules_pkg_dependencies()
 #################################################################################################
 #                                      MAVEN DEPENDENCIES
 #################################################################################################
+
+# KOTLIN_SHA must be updated when KOTLIN_VERSION is updated.
+# It is the SHA-256 of kotlin-compiler-KOTLIN_VERSION.zip.
+# SHA can be found on https://github.com/JetBrains/kotlin/releases
+KOTLIN_VERSION = "1.7.21"
+
+KOTLIN_SHA = "8412b31b808755f0c0d336dbb8c8443fa239bf32ddb3cdb81b305b25f0ad279e"
+
 load("@rules_jvm_external//:defs.bzl", "maven_install")
 load("@rules_jvm_external//:specs.bzl", "maven")
 load("//:third_party.bzl", "dependencies")
@@ -56,22 +64,22 @@ compat_repositories()
 #                                      Kotlin Setup
 #################################################################################################
 
-rules_kotlin_version = "v1.7.0-custom"
+rules_kotlin_version = "v1.7.1"
 
-rules_kotlin_sha = "70265ce56bd48406f396a0a8b4ff2a396b7c92cf09cae9c2b87b2cbb36d14f92"
+rules_kotlin_sha = "fd92a98bd8a8f0e1cdcb490b93f5acef1f1727ed992571232d33de42395ca9b3"
 
 http_archive(
     name = "io_bazel_rules_kotlin",
     sha256 = rules_kotlin_sha,
-    urls = ["https://github.com/brettwooldridge/rules_kotlin/releases/download/%s/rules_kotlin_release.tgz" % rules_kotlin_version],
+    urls = ["https://github.com/bazelbuild/rules_kotlin/releases/download/%s/rules_kotlin_release.tgz" % rules_kotlin_version],
 )
 
 load("@io_bazel_rules_kotlin//kotlin:repositories.bzl", "kotlin_repositories", "kotlinc_version")
 
 kotlin_repositories(
     compiler_release = kotlinc_version(
-        release = "1.7.0",  # just the numeric version
-        sha256 = "f5216644ad81571e5db62ec2322fe07468927bda40f51147ed626a2884b55f9a",
+        release = KOTLIN_VERSION,  # just the numeric version
+        sha256 = KOTLIN_SHA,
     ),
 )
 
