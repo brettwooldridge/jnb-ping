@@ -2,7 +2,7 @@ load("@rules_jvm_external//:defs.bzl", "maven_install")
 load("@rules_jvm_external//:specs.bzl", "maven", "parse")
 load("//:import_external_alias.bzl", "import_external_alias")
 
-KOTLIN_VERSION = "1.7.21"
+KOTLIN_VERSION = "2.1.10"
 
 def dependency(coordinates, exclusions = None):
     artifact = parse.parse_maven_coordinate(coordinates)
@@ -16,15 +16,13 @@ def dependency(coordinates, exclusions = None):
     )
 
 deps = [
-    dependency("com.github.jnr:jnr-posix:3.1.15"),
-    dependency("com.github.jnr:jnr-constants:0.10.3"),
-    dependency("com.github.jnr:jnr-ffi:2.2.12"),
-    dependency("com.github.jnr:jffi:1.3.9"),
-    dependency("it.unimi.dsi:fastutil:8.5.4"),
+    dependency("com.github.jnr:jnr-posix:3.1.20"),
+    dependency("com.github.jnr:jnr-constants:0.10.4"),
+    dependency("com.github.jnr:jnr-ffi:2.2.17"),
+    dependency("com.github.jnr:jffi:1.3.13"),
+    dependency("it.unimi.dsi:fastutil:8.5.15"),
     dependency("junit:junit:4.13.2"),
     dependency("org.jetbrains.kotlin:kotlin-reflect:%s" % KOTLIN_VERSION),
-    dependency("org.jetbrains.kotlin:kotlin-stdlib-common:%s" % KOTLIN_VERSION),
-    dependency("org.jetbrains.kotlin:kotlin-stdlib-jdk8:%s" % KOTLIN_VERSION),
 ]
 
 def dependencies():

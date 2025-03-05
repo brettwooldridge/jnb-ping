@@ -1,4 +1,4 @@
-load("@io_bazel_rules_kotlin//kotlin:jvm.bzl", "kt_jvm_test")
+load("@rules_kotlin//kotlin:jvm.bzl", "kt_jvm_test")
 
 def kotlin_test(name, testclass, deps):
     kt_jvm_test(
