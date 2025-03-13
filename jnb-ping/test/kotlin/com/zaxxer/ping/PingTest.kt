@@ -1,5 +1,6 @@
 package com.zaxxer.ping
 
+import com.sun.management.UnixOperatingSystemMXBean
 import com.zaxxer.ping.impl.*
 import com.zaxxer.ping.impl.util.dumpBuffer
 import jnr.ffi.Platform
@@ -10,8 +11,11 @@ import org.junit.Test
 import java.io.BufferedReader
 import java.io.IOException
 import java.io.InputStreamReader
+import java.lang.management.ManagementFactory
+import java.lang.management.OperatingSystemMXBean
 import java.net.Inet6Address
 import java.net.InetAddress
+import java.net.ServerSocket
 import java.nio.ByteBuffer
 import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
@@ -41,28 +45,26 @@ class PingTest {
    }
 
    @Test
-   fun testSizesAndAlignments() {
+   fun testSizesAlignmentsAndEndianess() {
       assertEquals(20, Struct.size(Ip()))
       assertEquals(28, Struct.size(Icmp()))
       assertEquals(2, Icmp().icmp_cksum.offset())
       assertEquals(4, Icmp().icmp_hun.ih_idseq.icd_id.offset())
       assertEquals(6, Icmp().icmp_hun.ih_idseq.icd_seq.offset())
       assertEquals(8, Icmp().icmp_dun.id_data.offset())
-      assertEquals(1024, Struct.size(Fd_set()))
+      assertEquals(8, Struct.size(PollFd()))
 
-      val buffer = ByteBuffer.allocateDirect(1024)
-      val fdSet = Fd_set()
-      fdSet.useMemory(runtime.memoryManager.newPointer(buffer))
+      val pollFdBuffer = ByteBuffer.allocateDirect(8)
+      val pollFd = PollFd()
+      pollFd.useMemory(runtime.memoryManager.newPointer(pollFdBuffer))
 
-      FD_SET(76, fdSet)
-      dumpBuffer("fd_set memory dump:", buffer)
-      assertEquals(4096, fdSet.fds_bits[1].get())
-      assertTrue(FD_ISSET(76, fdSet))
-
-      FD_SET(1120, fdSet)
-      dumpBuffer("fd_set memory dump:", buffer)
-      assertEquals(4294967296, fdSet.fds_bits[17].get())
-      assertTrue(FD_ISSET(1120, fdSet))
+      pollFd.fd = 0xBADCAFE
+      pollFd.events = 0xAABB
+      pollFd.revents = 0x2233
+      println(dumpBuffer("poll_fd memory dump:", pollFdBuffer))
+      arrayOf(0xfe, 0xca, 0xad, 0x0b, 0xbb, 0xaa, 0x33, 0x22).forEachIndexed { i, expected ->
+         assertEquals(expected.toByte(), pollFdBuffer.get(i))
+      }
    }
 
    @Test
@@ -265,4 +267,40 @@ class PingTest {
       return stdInput.readLine().split(" ")[0]
    }
 
+   @Test
+   fun testLargeFileDescriptors() {
+      var success = false
+
+      class PingHandler : PingResponseHandler {
+         override fun onResponse(pingTarget : PingTarget, responseTimeSec : Double, byteCount : Int, seq : Int) {
+            println("  ${Thread.currentThread()} Success")
+            success = true
+         }
+
+         override fun onTimeout(pingTarget : PingTarget) {
+            println("  ${Thread.currentThread()} Timeout")
+         }
+      }
+
+      val sockets = Array(25*1024) { ServerSocket(0) }
+
+      val fdCount = (ManagementFactory.getOperatingSystemMXBean() as UnixOperatingSystemMXBean)
+         .openFileDescriptorCount
+
+      assertTrue(fdCount >= sockets.size)
+
+      val pinger = IcmpPinger(PingHandler())
+
+      val selectorThread = Thread { pinger.runSelector() }
+      selectorThread.isDaemon = false
+      selectorThread.start()
+
+      pinger.ping(PingTarget(InetAddress.getByName("8.8.8.8")))
+
+      while (pinger.isPendingWork()) Thread.sleep(500)
+
+      pinger.stopSelector()
+
+      assertTrue("Ping didn't succeed.", success)
+   }
 }

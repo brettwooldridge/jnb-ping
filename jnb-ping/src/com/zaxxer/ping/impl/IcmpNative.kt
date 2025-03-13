@@ -156,6 +156,7 @@ val F_SETFL = jnr.constants.platform.Fcntl.F_SETFL.intValue()
 val O_NONBLOCK = jnr.constants.platform.OpenFlags.O_NONBLOCK.intValue()
 
 val SIZEOF_STRUCT_IP = Struct.size(Ip())
+val SIZEOF_STRUCT_POLL_FD = Struct.size(PollFd())
 
 interface LibC {
    fun socket(domain:Int, type:Int, protocol:Int) : Int
@@ -167,7 +168,7 @@ interface LibC {
 
    fun pipe(@Out fds:IntArray) : Int
 
-   fun select(fd:Int, read_set:Pointer, write_set:Pointer, @In @Out error_set:Fd_set?, @In @Out timeval:Timeval?) : Int
+   fun poll(fds:Pointer, @In nfds:Int, @In timeval:Int) : Int
 
    fun inet_pton(af:Int, cp:String, buf:Pointer) : Int
 
@@ -184,60 +185,48 @@ interface LibC {
    @ssize_t fun write(fd:Int, @In data:ByteArray, @size_t size:Long) : Int
 }
 
-fun htons(s:Short) = java.lang.Short.reverseBytes(s)
+inline fun htons(s:Short) = java.lang.Short.reverseBytes(s)
 
-fun ntohs(s:Short) = java.lang.Short.reverseBytes(s)
+inline fun ntohs(s:Short) = java.lang.Short.reverseBytes(s)
 
-fun htonl(value:Long) : Long {
-   return ((value and 0xff000000) shr 24) or
-          ((value and 0x00ff0000) shr 8) or
-          ((value and 0x0000ff00) shl 8) or
-          ((value and 0x000000ff) shl 24)
+inline fun htoni(i:Int) = java.lang.Integer.reverseBytes(i)
+
+inline fun htonl(l:Long) = java.lang.Long.reverseBytes(l)
+
+// /* Data structure describing a polling request.  */
+// struct pollfd {
+class PollFd:Struct(runtime) {
+   // int fd;            /* File descriptor to poll. */
+   // short int events;  /* Types of events poller cares about.  */
+   // short int revents; /* Types of events that actually occurred.  */
+   val _fd = Signed32()
+   val _events = Signed16()
+   val _revents = Signed16()
+
+   var fd: Int
+      inline get() = htoni(_fd.get())
+      inline set(value: Int) = _fd.set(htoni(value))
+
+   var events: Int
+      inline get() = htons(_events.get()).toInt()
+      inline set(value: Int) = _events.set(htons(value.toShort()))
+
+   var revents: Int
+      inline get() = htons(_revents.get()).toInt()
+      inline set(value: Int) = _revents.set(htons(value.toShort()))
 }
 
-// typedef long int __fd_mask;
-// #define __DARWIN_FD_SETSIZE   8192
-// #define __DARWIN_NBBY            8                                /* bits in a byte */
-// #define __DARWIN_NFDBITS      (sizeof(__fd_mask) * __DARWIN_NBBY) /* bits per mask */
-//
-// --> __DARWIN_NFDBITS = 8 * 8 = 64
-// --> __DARWIN_howmany = __DARWIN_FD_SETSIZE / __DARWIN_NFDBITS = 8192 / 64 = 128
-//
-// typedef struct fd_set {
-//    __fd_mask  fds_bits[__DARWIN_howmany(__DARWIN_FD_SETSIZE, __DARWIN_NFDBITS)];
-// } fd_set;
-class Fd_set:Struct(runtime) {
-
-   @field:JvmField val fds_bits: Array<out Signed64> = Array(128, { Signed64() })
-
-   init {
-      val memory = this.runtime.memoryManager.allocateDirect(size(this))
-      this.useMemory(memory)
-   }
-}
-
-val SIZEOF_FD_SET = Struct.size(Fd_set()).toLong()
-
-fun FD_SET(fd:Int, fd_set:Fd_set) {
-   // ((fd_set*)->fds_bits[ (unsigned long)__fd / __DARWIN_NFDBITS ] |= ((__fd_mask) (((unsigned long) 1) << ((unsigned long) __fd % __DARWIN_NFDBITS))))
-   val ndx = fd / 64
-   val currvalue = fd_set.fds_bits[ndx].get()
-   val orValue = (1L shl (fd % 64))
-   val newValue = currvalue or orValue
-   fd_set.fds_bits[ndx].set(newValue)
-}
-
-fun FD_ISSET(fd:Int, fd_set:Fd_set) : Boolean {
-   // return (_p->fds_bits[(unsigned long)_n/__DARWIN_NFDBITS] & ((__fd_mask)(((unsigned long)1)<<((unsigned long)_n % __DARWIN_NFDBITS))))
-   val ndx = fd / 64
-   val currvalue = fd_set.fds_bits[ndx].get()
-   val andValue = (1L shl (fd % 64))
-
-   return currvalue and andValue != 0L
-}
-
-fun FD_ZERO(fd_set:Fd_set) = Struct.getMemory(fd_set).setMemory(0, SIZEOF_FD_SET, 0)
-
+// #define POLLIN		01              /* There is data to read.  */
+// #define POLLPRI		02              /* There is urgent data to read.  */
+// #define POLLOUT		04              /* Writing now will not block.  */
+// /* Event types always implicitly polled for.  These bits need not be set in
+//    `events', but they will appear in `revents' to indicate the status of
+//    the file descriptor.  */
+// #define POLLERR         010             /* Error condition.  */
+const val POLLIN = 0x1
+const val POLLPRI = 0x2
+const val POLLOUT = 0x4
+const val POLLERR = 0x8
 
 /*****************************************************************************
  *                              ICMP Definitions
