@@ -88,7 +88,7 @@ const val DEFAULT_TIMEOUT_MS = 1000L
 const val DEFAULT_TIMEOUT_USEC = 1000 * DEFAULT_TIMEOUT_MS
 const val BUFFER_SIZE = 128L
 const val PENDING_QUEUE_SIZE = 8192
-const val POLLINORPRI: Int = POLLIN or POLLPRI
+const val POLLINORPRI = POLLIN or POLLPRI
 
 typealias FD = Int
 
@@ -514,8 +514,6 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
 
       icmp6 = Icmp6()
 
-      // TODO: Здесь размер socketBufferPointer должен быть SIZEOF_STRUCT_IP? Или это намеренный указатель на память,
-      // чтобы не ебаться в сраку
       recvIp = Ip()
       recvIp.useMemory(socketBufferPointer)
 
