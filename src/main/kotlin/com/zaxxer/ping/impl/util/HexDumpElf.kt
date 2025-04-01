@@ -19,10 +19,9 @@ package com.zaxxer.ping.impl.util
 import java.nio.ByteBuffer
 import java.util.Formatter
 
-const val MAX_VISIBLE = 127
-const val MIN_VISIBLE = 31
+val VISIBLE_ASCII = 32..<127
 
-fun dumpBuffer(message:String, buffer:ByteBuffer, offset:Int = 0) : String {
+internal fun dumpBuffer(message:String, buffer:ByteBuffer, offset:Int = 0) : String {
    val tmpBuffer = buffer.duplicate()
    tmpBuffer.position(offset)
 
@@ -62,7 +61,7 @@ fun dump(displayOffset:Int, data:ByteArray, offset:Int, len:Int) : String {
          if (dataNdx < maxDataNdx) {
             val b = data[dataNdx++]
             formatter.format("%02x ", b)
-            ascii.append(if (b in (MIN_VISIBLE + 1) until MAX_VISIBLE) b.toInt().toChar() else ' ')
+            ascii.append(if (b in VISIBLE_ASCII) b.toInt().toChar() else ' ')
          }
          else {
             sb.append("   ")

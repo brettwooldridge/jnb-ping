@@ -5,9 +5,9 @@ import com.zaxxer.ping.impl.*
 import com.zaxxer.ping.impl.util.dumpBuffer
 import jnr.ffi.Platform
 import jnr.ffi.Struct
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
 import java.io.BufferedReader
 import java.io.IOException
 import java.io.InputStreamReader
@@ -21,7 +21,6 @@ import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
-@Suppress("DuplicatedCode")
 class PingTest {
    private val runtime:jnr.ffi.Runtime = jnr.ffi.Runtime.getSystemRuntime()!!
    private val platform: Platform = Platform.getNativePlatform()
@@ -136,7 +135,7 @@ class PingTest {
 
       pinger.stopSelector()
 
-      assertTrue("$timeoutTargets timed out.", timeoutTargets.isEmpty())
+      assertTrue(timeoutTargets.isEmpty(), "$timeoutTargets timed out.")
    }
 
    @Test
@@ -186,7 +185,7 @@ class PingTest {
 
       pinger.stopSelector()
 
-      assertTrue("$timeoutTargets timed out.", timeoutTargets.isEmpty())
+      assertTrue(timeoutTargets.isEmpty(), "$timeoutTargets timed out.")
    }
 
    @Test
@@ -221,7 +220,7 @@ class PingTest {
 
       pinger.stopSelector()
 
-      assertTrue("Ping didn't timeout as expected.", timedOut)
+      assertTrue(timedOut, "Ping didn't timeout as expected.")
    }
 
    @Test
@@ -253,18 +252,17 @@ class PingTest {
       }
 
       if (!semaphore.tryAcquire(pingCount, 5, TimeUnit.SECONDS)) {
-         assertEquals("Every ping attempt should have a timeout", pingCount, semaphore.availablePermits())
+         assertEquals(pingCount, semaphore.availablePermits(), "Every ping attempt should have a timeout")
       }
 
-      assertEquals("There should be no successful pings", 0, successCount.get())
+      assertEquals(0, successCount.get(), "There should be no successful pings")
 
       pinger.stopSelector()
    }
 
    private fun getIpv6Address() : String {
-      val proc = Runtime.getRuntime().exec("hostname -i")
-      val stdInput = BufferedReader(InputStreamReader(proc.inputStream))
-      return stdInput.readLine().split(" ")[0]
+      return Runtime.getRuntime().exec(arrayOf("hostname", "-i"))
+         .inputReader().readLine().substringBefore(" ")
    }
 
    @Test
@@ -301,6 +299,6 @@ class PingTest {
 
       pinger.stopSelector()
 
-      assertTrue("Ping didn't succeed.", success)
+      assertTrue(success, "Ping didn't succeed.")
    }
 }

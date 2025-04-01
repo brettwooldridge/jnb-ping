@@ -1,0 +1,181 @@
+import org.gradle.api.tasks.bundling.Jar
+import org.gradle.api.tasks.testing.logging.TestLogEvent
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
+var group = "com.zaxxer"
+var version = "1.3.2"
+var description = "Java Non-Blocking Ping (ICMP)"
+
+project.group = group
+project.version = version
+project.description = description
+
+// Credentials used for publishing
+val ossrhUserName = findProperty("username") as String?
+val ossrhPassword = findProperty("password") as String?
+
+plugins {
+	kotlin("jvm") version "2.1.20"
+	jacoco
+	`java-library`
+	`maven-publish`
+	signing
+	id("com.github.ben-manes.versions") version "0.52.0"
+}
+
+sourceSets {
+	main {
+		kotlin.srcDirs("src/main/kotlin")
+	}
+
+	test {
+		kotlin.srcDirs("src/test/kotlin")
+	}
+}
+
+java {
+	sourceCompatibility = JavaVersion.VERSION_21
+	targetCompatibility = JavaVersion.VERSION_21
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(21)
+	}
+}
+
+kotlin {
+	jvmToolchain(21)
+	compilerOptions {
+		jvmTarget = JvmTarget.JVM_21
+
+		// Disable some safety checks for better performance
+		freeCompilerArgs = listOf(
+			"-Xno-param-assertions",
+			"-Xno-call-assertions",
+			"-Xno-receiver-assertions",
+		)
+	}
+}
+
+tasks {
+	test {
+		useJUnitPlatform()
+
+		// Log everything
+		testLogging.events = TestLogEvent.values().toSet()
+
+		finalizedBy(jacocoTestReport)
+	}
+
+	jacocoTestReport {
+		reports {
+			xml.required = true
+			html.required = true
+		}
+
+		dependsOn(test)
+	}
+}
+
+dependencies {
+	implementation("com.github.jnr:jnr-posix:3.1.20")
+	implementation("it.unimi.dsi:fastutil:8.5.15")
+
+	testImplementation("org.junit.jupiter:junit-jupiter-api:5.12.1")
+	testImplementation("org.junit.jupiter:junit-jupiter-engine:5.12.1")
+	testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.12.1")
+}
+
+configurations {
+	all {
+		// Fail if there are conflicting versions of the same dependency in a dependency graph
+		resolutionStrategy.failOnVersionConflict()
+	}
+}
+
+repositories {
+	mavenCentral {
+		credentials {
+			username = ossrhUserName
+			password = ossrhPassword
+		}
+	}
+	maven {
+		name = "repository"
+		url = uri("https://oss.sonatype.org/service/local/staging/deploy/maven2/")
+		credentials {
+			username = ossrhUserName
+			password = ossrhPassword
+		}
+	}
+	maven {
+		name = "snapshotRepository"
+		url = uri("https://oss.sonatype.org/content/repositories/snapshots/")
+		credentials {
+			username = ossrhUserName
+			password = ossrhPassword
+		}
+	}
+}
+
+// Publishing
+
+val javadocJar by tasks.registering(Jar::class) {
+	archiveClassifier = "javadoc"
+	from(tasks.javadoc.get())
+}
+
+val sourcesJar by tasks.registering(Jar::class) {
+	archiveClassifier = "sources"
+	from(sourceSets.main.get().allSource)
+}
+
+val testsJar by tasks.registering(Jar::class) {
+	archiveClassifier = "tests"
+	from(sourceSets.test.get().allSource)
+}
+
+publishing {
+	publications {
+		create<MavenPublication>("default") {
+			this.groupId = group
+			this.artifactId = project.name
+			this.version = version
+			from(components["java"])
+			artifact(sourcesJar)
+			pom {
+				name = project.name
+				description = project.description
+				packaging = "jar"
+				url = "https://github.com/brettwooldridge/jnb-ping"
+				developers {
+					developer {
+						id = "brettwooldridge"
+						name = "Brett Wooldridge"
+						email = "brett.wooldridge@gmail.com"
+					}
+				}
+				licenses {
+					license {
+						name = "Apache License"
+						url = "https://www.apache.org/licenses/LICENSE-2.0"
+					}
+				}
+				scm {
+					connection = "scm:git:https://github.com/brettwooldridge/jnb-ping.git"
+					developerConnection = "scm:git:git@github.com:brettwooldridge/jnb-ping.git"
+					url = "https://github.com/brettwooldridge/jnb-ping"
+				}
+			}
+		}
+	}
+}
+
+artifacts {
+	add("archives", javadocJar)
+	add("archives", sourcesJar)
+}
+
+signing {
+	useGpgCmd()
+	sign(configurations.archives.get())
+	sign(publishing.publications["default"])
+}

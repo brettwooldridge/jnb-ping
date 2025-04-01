@@ -1,4 +1,6 @@
 .idea
-.ijwb
-bazel-*
+target
+.gradle
+.kotlin
 build
+out
