@@ -116,20 +116,22 @@ class PingTarget : Comparable<PingTarget> {
       this.timeoutMs = timeoutMs
       this.id = 0
 
-      if (inetAddress is Inet4Address) {
-         isIPv4 = true
-         sockAddr = if (isBSD) {
-            BSDSockAddr4(inetAddress)
-         } else {
-            LinuxSockAddr4(inetAddress)
+      when (inetAddress) {
+         is Inet4Address -> {
+            isIPv4 = true
+            sockAddr = if (isBSD) {
+               BSDSockAddr4(inetAddress)
+            } else {
+               LinuxSockAddr4(inetAddress)
+            }
          }
-      }
-      else {  // IPv6
-         isIPv4 = false
-         sockAddr = if (isBSD) {
-            BSDSockAddr6(inetAddress as Inet6Address)
-         } else {
-            LinuxSockAddr6(inetAddress as Inet6Address)
+         is Inet6Address -> {
+            isIPv4 = false
+            sockAddr = if (isBSD) {
+               BSDSockAddr6(inetAddress)
+            } else {
+               LinuxSockAddr6(inetAddress)
+            }
          }
       }
    }
@@ -149,7 +151,9 @@ class PingTarget : Comparable<PingTarget> {
       complete = false
    }
 
-    override fun compareTo(other: PingTarget): Int = timeout.compareTo(other.timeout)
+   override fun compareTo(other: PingTarget): Int = timeout.compareTo(other.timeout)
+
+   override fun toString(): String = inetAddress.toString()
 }
 
 interface PingResponseHandler {
@@ -251,7 +255,7 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
             if (fd6.revents and POLLINORPRI != 0) processReceives(fd6.fd)
 
             if (fd4.revents and POLLOUT != 0) processSends(pending4Pings, fd4.fd)
-            if (fd6.revents and POLLOUT != 0) processSends(pending4Pings, fd6.fd)
+            if (fd6.revents and POLLOUT != 0) processSends(pending6Pings, fd6.fd)
 
             fdPipe.revents = 0
             fd4.revents = 0

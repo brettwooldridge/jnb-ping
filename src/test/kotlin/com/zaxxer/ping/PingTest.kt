@@ -103,7 +103,7 @@ class PingTest {
          }
 
          override fun onTimeout(pingTarget : PingTarget) {
-            println("  ${Thread.currentThread()} Timeout")
+            println("  ${Thread.currentThread()} Timeout on $pingTarget")
             timeoutTargets.add(pingTarget)
             semaphore.release()
          }
@@ -153,7 +153,7 @@ class PingTest {
          }
 
          override fun onTimeout(pingTarget: PingTarget) {
-            println("  ${Thread.currentThread()} Timeout")
+            println("  ${Thread.currentThread()} Timeout on $pingTarget")
             timeoutTargets.add(pingTarget)
             semaphore.release()
          }
@@ -165,14 +165,17 @@ class PingTest {
       selectorThread.isDaemon = false
       selectorThread.start()
 
-      val pingTargets = ArrayList<PingTarget>()
-      if (isBSD) {
-         pingTargets.add(PingTarget(InetAddress.getByName("2600::")))
-      } else {
+      val pingTargets = mutableListOf(
+         // Localhost / loopback.
+         PingTarget(InetAddress.getByName("::1")),
+         // Google DNS. Uncomment if you have access to IPv6 over internet.
+         // PingTarget(InetAddress.getByName("2001:4860:4860::8888")),
+      )
+      if (!isBSD) {
          pingTargets.add(PingTarget(InetAddress.getByName(getIpv6Address())))
       }
 
-      for (i in 0..(10 * pingTargets.size)) {
+      repeat(10 * pingTargets.size) { i ->
          if (!semaphore.tryAcquire()) {
             println("$i: Blocking on semaphore.acquire()")
             semaphore.acquire()
@@ -201,7 +204,7 @@ class PingTest {
          }
 
          override fun onTimeout(pingTarget : PingTarget) {
-            println("  ${Thread.currentThread()} Timeout")
+            println("  ${Thread.currentThread()} Timeout on $pingTarget")
             timedOut = true
          }
 
