@@ -1,9 +1,18 @@
+version: 2.1
+
 jobs:
-  build: # name of your job
-    machine: true # executor type
+  build:
+    machine: true
     resource_class: brettwooldridge/ubuntu
 
     steps:
-      # Commands run in a Linux virtual machine environment
-      - checkout
-      - run: ./gradlew build
+      - run:
+          name: Clone repository using HTTPS
+          command: |
+            git clone https://github.com/brettwooldridge/jnb-ping.git
+            cd jnb-ping
+      - run:
+          name: Build with Gradle
+          command: |
+            cd jnb-ping
+            ./gradlew build
