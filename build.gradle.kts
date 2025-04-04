@@ -93,27 +93,33 @@ configurations {
 	}
 }
 
-repositories {
-	mavenCentral {
-		credentials {
-			username = ossrhUserName
-			password = ossrhPassword
-		}
+if (ossrhUserName == null || ossrhPassword == null) {
+	repositories {
+		mavenCentral()
 	}
-	maven {
-		name = "repository"
-		url = uri("https://oss.sonatype.org/service/local/staging/deploy/maven2/")
-		credentials {
-			username = ossrhUserName
-			password = ossrhPassword
+} else {
+	repositories {
+		mavenCentral {
+			credentials {
+				username = ossrhUserName
+				password = ossrhPassword
+			}
 		}
-	}
-	maven {
-		name = "snapshotRepository"
-		url = uri("https://oss.sonatype.org/content/repositories/snapshots/")
-		credentials {
-			username = ossrhUserName
-			password = ossrhPassword
+		maven {
+			name = "repository"
+			url = uri("https://oss.sonatype.org/service/local/staging/deploy/maven2/")
+			credentials {
+				username = ossrhUserName
+				password = ossrhPassword
+			}
+		}
+		maven {
+			name = "snapshotRepository"
+			url = uri("https://oss.sonatype.org/content/repositories/snapshots/")
+			credentials {
+				username = ossrhUserName
+				password = ossrhPassword
+			}
 		}
 	}
 }
