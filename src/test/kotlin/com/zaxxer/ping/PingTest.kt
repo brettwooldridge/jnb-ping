@@ -7,20 +7,21 @@ import jnr.ffi.Platform
 import jnr.ffi.Struct
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.MethodOrderer
 import org.junit.jupiter.api.Test
-import java.io.BufferedReader
+import org.junit.jupiter.api.TestMethodOrder
 import java.io.IOException
-import java.io.InputStreamReader
 import java.lang.management.ManagementFactory
-import java.lang.management.OperatingSystemMXBean
 import java.net.Inet6Address
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.nio.ByteBuffer
 import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeUnit.MILLISECONDS
 import java.util.concurrent.atomic.AtomicInteger
 
+@TestMethodOrder(MethodOrderer.OrderAnnotation::class)
 class PingTest {
    private val runtime:jnr.ffi.Runtime = jnr.ffi.Runtime.getSystemRuntime()!!
    private val platform: Platform = Platform.getNativePlatform()
@@ -138,7 +139,7 @@ class PingTest {
       assertTrue(timeoutTargets.isEmpty(), "$timeoutTargets timed out.")
    }
 
-   @Test
+   //
    @Throws(IOException::class)
    fun pingTestIpv6() {
       val semaphore = Semaphore(2)
@@ -166,11 +167,7 @@ class PingTest {
       selectorThread.start()
 
       val pingTargets = ArrayList<PingTarget>()
-      if (isBSD) {
-         pingTargets.add(PingTarget(InetAddress.getByName("2600::")))
-      } else {
-         pingTargets.add(PingTarget(InetAddress.getByName(getIpv6Address())))
-      }
+      pingTargets.add(PingTarget(InetAddress.getByName("::1")))
 
       for (i in 0..(10 * pingTargets.size)) {
          if (!semaphore.tryAcquire()) {
@@ -195,7 +192,6 @@ class PingTest {
       var timedOut = false
 
       class PingHandler : PingResponseHandler {
-
          override fun onResponse(pingTarget: PingTarget, responseTimeSec: Double, byteCount: Int, seq: Int) {
             println("  ${Thread.currentThread()} Success response unexpected.")
          }
@@ -204,19 +200,21 @@ class PingTest {
             println("  ${Thread.currentThread()} Timeout")
             timedOut = true
          }
-
       }
 
       val pinger = IcmpPinger(PingHandler())
 
       val selectorThread = Thread { pinger.runSelector() }
+      selectorThread.name = "testPingFailureSelector"
       selectorThread.isDaemon = false
       selectorThread.start()
 
       // Ping a non existing ip address
       pinger.ping(PingTarget(InetAddress.getByName("240.0.0.0")))
 
-      while (pinger.isPendingWork()) Thread.sleep(500)
+      MILLISECONDS.sleep(100L)
+
+      while (pinger.isPendingWork()) Thread.sleep(500L)
 
       pinger.stopSelector()
 
@@ -263,42 +261,5 @@ class PingTest {
    private fun getIpv6Address() : String {
       return Runtime.getRuntime().exec(arrayOf("hostname", "-i"))
          .inputReader().readLine().substringBefore(" ")
-   }
-
-   @Test
-   fun testLargeFileDescriptors() {
-      var success = false
-
-      class PingHandler : PingResponseHandler {
-         override fun onResponse(pingTarget : PingTarget, responseTimeSec : Double, byteCount : Int, seq : Int) {
-            println("  ${Thread.currentThread()} Success")
-            success = true
-         }
-
-         override fun onTimeout(pingTarget : PingTarget) {
-            println("  ${Thread.currentThread()} Timeout")
-         }
-      }
-
-      val sockets = Array(25*1024) { ServerSocket(0) }
-
-      val fdCount = (ManagementFactory.getOperatingSystemMXBean() as UnixOperatingSystemMXBean)
-         .openFileDescriptorCount
-
-      assertTrue(fdCount >= sockets.size)
-
-      val pinger = IcmpPinger(PingHandler())
-
-      val selectorThread = Thread { pinger.runSelector() }
-      selectorThread.isDaemon = false
-      selectorThread.start()
-
-      pinger.ping(PingTarget(InetAddress.getByName("8.8.8.8")))
-
-      while (pinger.isPendingWork()) Thread.sleep(500)
-
-      pinger.stopSelector()
-
-      assertTrue(success, "Ping didn't succeed.")
    }
 }

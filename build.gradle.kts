@@ -57,6 +57,8 @@ kotlin {
 
 tasks {
 	test {
+		systemProperty("java.util.logging.config.file", "$projectDir/src/test/resources/logging.properties")
+
 		useJUnitPlatform()
 
 		// Log everything

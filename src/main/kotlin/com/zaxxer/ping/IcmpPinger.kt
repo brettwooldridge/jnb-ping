@@ -17,46 +17,11 @@
 package com.zaxxer.ping
 
 import com.zaxxer.ping.IcmpPinger.Companion.ID_SEQUENCE
-import com.zaxxer.ping.impl.BSDSockAddr4
-import com.zaxxer.ping.impl.BSDSockAddr6
-import com.zaxxer.ping.impl.DEFAULT_DATALEN
-import com.zaxxer.ping.impl.F_GETFL
-import com.zaxxer.ping.impl.F_SETFL
-import com.zaxxer.ping.impl.ICMPV6_ECHO_REPLY
-import com.zaxxer.ping.impl.ICMPV6_ECHO_REQUEST
-import com.zaxxer.ping.impl.ICMP_ECHO
-import com.zaxxer.ping.impl.ICMP_ECHOREPLY
-import com.zaxxer.ping.impl.ICMP_MINLEN
-import com.zaxxer.ping.impl.IPPROTO_ICMP
-import com.zaxxer.ping.impl.IPPROTO_ICMPV6
-import com.zaxxer.ping.impl.Icmp
-import com.zaxxer.ping.impl.Icmp6
-import com.zaxxer.ping.impl.Ip
-import com.zaxxer.ping.impl.PollFd
-import com.zaxxer.ping.impl.LinuxSockAddr4
-import com.zaxxer.ping.impl.LinuxSockAddr6
+import com.zaxxer.ping.impl.*
 import com.zaxxer.ping.impl.NativeStatic.Companion.isBSD
 import com.zaxxer.ping.impl.NativeStatic.Companion.libc
 import com.zaxxer.ping.impl.NativeStatic.Companion.posix
 import com.zaxxer.ping.impl.NativeStatic.Companion.runtime
-import com.zaxxer.ping.impl.O_NONBLOCK
-import com.zaxxer.ping.impl.PF_INET
-import com.zaxxer.ping.impl.PF_INET6
-import com.zaxxer.ping.impl.SEND_PACKET_SIZE
-import com.zaxxer.ping.impl.SIZEOF_STRUCT_IP
-import com.zaxxer.ping.impl.SIZEOF_STRUCT_POLL_FD
-import com.zaxxer.ping.impl.SOCK_DGRAM
-import com.zaxxer.ping.impl.SOL_SOCKET
-import com.zaxxer.ping.impl.SO_REUSEPORT
-import com.zaxxer.ping.impl.SO_TIMESTAMP
-import com.zaxxer.ping.impl.POLLIN
-import com.zaxxer.ping.impl.POLLPRI
-import com.zaxxer.ping.impl.POLLOUT
-import com.zaxxer.ping.impl.POLLERR
-import com.zaxxer.ping.impl.SockAddr
-import com.zaxxer.ping.impl.htons
-import com.zaxxer.ping.impl.icmpCksum
-import com.zaxxer.ping.impl.ntohs
 import com.zaxxer.ping.impl.util.WaitingTargetCollection
 import com.zaxxer.ping.impl.util.dumpBuffer
 import jnr.constants.platform.Errno
@@ -70,9 +35,7 @@ import java.net.Inet6Address
 import java.net.InetAddress
 import java.nio.ByteBuffer
 import java.util.concurrent.LinkedBlockingQueue
-import java.util.concurrent.TimeUnit.MICROSECONDS
-import java.util.concurrent.TimeUnit.MILLISECONDS
-import java.util.concurrent.TimeUnit.NANOSECONDS
+import java.util.concurrent.TimeUnit.*
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.logging.Logger
@@ -88,7 +51,7 @@ const val DEFAULT_TIMEOUT_MS = 1000L
 const val DEFAULT_TIMEOUT_USEC = 1000 * DEFAULT_TIMEOUT_MS
 const val BUFFER_SIZE = 128L
 const val PENDING_QUEUE_SIZE = 8192
-const val POLLINORPRI = POLLIN or POLLPRI
+const val POLLIN_OR_PRI = POLLIN or POLLPRI
 
 typealias FD = Int
 
@@ -239,7 +202,7 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
 
          awoken.compareAndSet(true, false)
 
-         if (fdPipe.revents and POLLINORPRI != 0) wakeupReceived()
+         if (fdPipe.revents and POLLIN_OR_PRI != 0) wakeupReceived()
 
          if (rc > 0) {
             if (fd4.revents and POLLERR != 0 || fd6.revents and POLLERR != 0) {
@@ -247,8 +210,8 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
                break
             }
 
-            if (fd4.revents and POLLINORPRI != 0) processReceives(fd4.fd)
-            if (fd6.revents and POLLINORPRI != 0) processReceives(fd6.fd)
+            if (fd4.revents and POLLIN_OR_PRI != 0) processReceives(fd4.fd)
+            if (fd6.revents and POLLIN_OR_PRI != 0) processReceives(fd6.fd)
 
             if (fd4.revents and POLLOUT != 0) processSends(pending4Pings, fd4.fd)
             if (fd6.revents and POLLOUT != 0) processSends(pending4Pings, fd6.fd)
@@ -274,8 +237,8 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
 
          var fd4events = 0
          var fd6events = 0
-         if (isPending4reads) fd4events = fd4events or POLLINORPRI
-         if (isPending6reads) fd6events = fd6events or POLLINORPRI
+         if (isPending4reads) fd4events = fd4events or POLLIN_OR_PRI
+         if (isPending6reads) fd6events = fd6events or POLLIN_OR_PRI
          if (isPending4writes) fd4events = fd4events or POLLOUT
          if (isPending6writes) fd6events = fd6events or POLLOUT
          fd4.events = fd4events
@@ -523,7 +486,7 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
 
       arrayOf(fdPipe, fd4, fd6).forEachIndexed { i, fd ->
          fd.useMemory(fdBufferPointer.slice(SIZEOF_STRUCT_POLL_FD.toLong() * i))
-         fd.events = POLLINORPRI or POLLOUT or POLLERR
+         fd.events = POLLIN_OR_PRI or POLLOUT or POLLERR
          fd.revents = 0
       }
 

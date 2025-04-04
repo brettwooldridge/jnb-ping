@@ -191,7 +191,12 @@ inline fun ntohs(s:Short) = java.lang.Short.reverseBytes(s)
 
 inline fun htoni(i:Int) = java.lang.Integer.reverseBytes(i)
 
-inline fun htonl(l:Long) = java.lang.Long.reverseBytes(l)
+fun htonl(value:Long) : Long {
+   return ((value and 0xff000000) shr 24) or
+           ((value and 0x00ff0000) shr 8) or
+           ((value and 0x0000ff00) shl 8) or
+           ((value and 0x000000ff) shl 24)
+}
 
 // /* Data structure describing a polling request.  */
 // struct pollfd {
