@@ -6,4 +6,4 @@ jobs:
     steps:
       # Commands run in a Linux virtual machine environment
       - checkout
-      - run: bazel build //...
+      - run: ./gradlew build
