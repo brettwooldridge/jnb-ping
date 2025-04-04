@@ -183,7 +183,9 @@ artifacts {
 }
 
 signing {
-	useGpgCmd()
-	sign(configurations.archives.get())
-	sign(publishing.publications["default"])
+	if (gradle.startParameter.taskNames.any { it.contains("sign", ignoreCase = true) || it.contains("upload", ignoreCase = true) }) {
+		useGpgCmd()
+		sign(configurations.archives.get())
+		sign(publishing.publications["default"])
+	}
 }
