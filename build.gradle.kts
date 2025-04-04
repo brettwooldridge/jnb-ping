@@ -20,7 +20,7 @@ plugins {
 	`java-library`
 	`maven-publish`
 	signing
-	id("com.github.ben-manes.versions") version "0.52.0"
+	id("io.github.gradle-nexus.publish-plugin") version "2.0.0"
 }
 
 sourceSets {
@@ -65,6 +65,12 @@ tasks {
 		testLogging.events = TestLogEvent.values().toSet()
 
 		finalizedBy(jacocoTestReport)
+	}
+
+	javadoc {
+		if (JavaVersion.current().isJava9Compatible) {
+			(options as StandardJavadocDocletOptions).addBooleanOption("html5", true)
+		}
 	}
 
 	jacocoTestReport {
@@ -143,12 +149,13 @@ val testsJar by tasks.registering(Jar::class) {
 
 publishing {
 	publications {
-		create<MavenPublication>("default") {
+		create<MavenPublication>("mavenJava") {
 			this.groupId = group
 			this.artifactId = project.name
 			this.version = version
 			from(components["java"])
 			artifact(sourcesJar)
+			artifact(javadocJar)
 			pom {
 				name = project.name
 				description = project.description
@@ -183,9 +190,18 @@ artifacts {
 }
 
 signing {
-	if (gradle.startParameter.taskNames.any { it.contains("sign", ignoreCase = true) || it.contains("upload", ignoreCase = true) }) {
+	if (gradle.startParameter.taskNames.any { it.contains("publish", ignoreCase = true)}) {
 		useGpgCmd()
 		sign(configurations.archives.get())
-		sign(publishing.publications["default"])
+		sign(publishing.publications["mavenJava"])
+	}
+}
+
+nexusPublishing {
+	repositories {
+		sonatype {
+			username.set(ossrhUserName)
+			password.set(ossrhPassword)
+		}
 	}
 }
