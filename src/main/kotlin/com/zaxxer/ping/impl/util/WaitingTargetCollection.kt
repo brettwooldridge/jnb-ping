@@ -1,19 +1,19 @@
 package com.zaxxer.ping.impl.util
 
 import com.zaxxer.ping.PingTarget
-import it.unimi.dsi.fastutil.shorts.Short2ObjectLinkedOpenHashMap
+import com.carrotsearch.hppc.ShortObjectHashMap
 import java.util.concurrent.PriorityBlockingQueue
 
 private const val INITIAL_CAPACITY = 16
 
 class WaitingTargetCollection {
-    private val waitingTargetMap = Short2ObjectLinkedOpenHashMap<PingTarget>()
+    private val waitingTargetMap = ShortObjectHashMap<PingTarget>()
     private val targetTimeoutQueue = PriorityBlockingQueue<PingTarget>(INITIAL_CAPACITY)
     val size
-        get() = waitingTargetMap.size
+        get() = waitingTargetMap.size()
 
     fun add(target: PingTarget) {
-        waitingTargetMap[target.sequence] = target
+        waitingTargetMap.put(target.sequence, target)
         targetTimeoutQueue.put(target)
     }
 
@@ -53,9 +53,9 @@ class WaitingTargetCollection {
         return pingTarget
     }
 
-    fun size() = waitingTargetMap.size
+    fun size() = waitingTargetMap.size()
 
-    fun isNotEmpty() = waitingTargetMap.size > 0
+    fun isNotEmpty() = !waitingTargetMap.isEmpty
 
-    fun isEmpty() = waitingTargetMap.isEmpty()
+    fun isEmpty() = waitingTargetMap.isEmpty
 }
