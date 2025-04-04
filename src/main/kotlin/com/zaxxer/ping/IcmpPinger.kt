@@ -55,7 +55,6 @@ const val POLLIN_OR_PRI = POLLIN or POLLPRI
 
 typealias FD = Int
 
-@Suppress("SpellCheckingInspection")
 class PingTarget : Comparable<PingTarget> {
    // Assigned at construction
    val inetAddress: InetAddress
@@ -113,6 +112,8 @@ class PingTarget : Comparable<PingTarget> {
    }
 
     override fun compareTo(other: PingTarget): Int = timeout.compareTo(other.timeout)
+
+   override fun toString(): String = inetAddress.toString()
 }
 
 interface PingResponseHandler {

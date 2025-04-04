@@ -18,7 +18,7 @@
  * Created by Brett Wooldridge on 2017/10/03.
  */
 
-@file:Suppress("PropertyName", "unused", "ProtectedInFinal", "FunctionName", "ClassName")
+@file:Suppress("PropertyName", "unused", "ProtectedInFinal", "FunctionName", "ClassName", "SpellCheckingInspection")
 
 package com.zaxxer.ping.impl
 
@@ -36,14 +36,13 @@ import jnr.ffi.types.socklen_t
 import jnr.ffi.types.ssize_t
 import jnr.posix.POSIX
 import jnr.posix.POSIXFactory
-import jnr.posix.Timeval
 import java.net.Inet4Address
 import java.net.Inet6Address
 import java.nio.ByteBuffer
 
 internal class NativeStatic {
    companion object {
-      @JvmStatic val runtime:jnr.ffi.Runtime = jnr.ffi.Runtime.getSystemRuntime()!!
+      @JvmStatic val runtime: Runtime = Runtime.getSystemRuntime()!!
       @JvmStatic val platform:Platform = Platform.getNativePlatform()
       @JvmStatic val isBSD = platform.isBSD
       @JvmStatic val posix:POSIX = POSIXFactory.getNativePOSIX()
@@ -74,7 +73,7 @@ class BSDSockAddr6(address: Inet6Address):SockAddr6() {
    @field:JvmField val sin6_family = Unsigned8()
    @field:JvmField val sin6_port = Unsigned16()
    @field:JvmField val sin6_flowinfo = Unsigned32()
-   @field:JvmField val sin6_addr:Array<out Unsigned8> = Array(16, {Unsigned8()})
+   @field:JvmField val sin6_addr:Array<out Unsigned8> = Array(16) { Unsigned8() }
    @field:JvmField val sin6_scope_id = Unsigned32()
 
    init {
@@ -109,7 +108,7 @@ class LinuxSockAddr6(address:Inet6Address):SockAddr6() {
    @field:JvmField val sin6_family = Unsigned16()
    @field:JvmField val sin6_port = Unsigned16()
    @field:JvmField val sin6_flowinfo = Unsigned32()
-   @field:JvmField val sin6_addr:Array<out Unsigned8> = Array(16, {Unsigned8()})
+   @field:JvmField val sin6_addr:Array<out Unsigned8> = Array(16) { Unsigned8() }
    @field:JvmField val sin6_scope_id = Unsigned32()
 
    init {
@@ -136,13 +135,13 @@ val PF_INET = AF_INET.intValue()
 val PF_INET6 = AF_INET6.intValue()
 val SOCK_DGRAM = jnr.constants.platform.Sock.SOCK_DGRAM.intValue()
 
-val IPPROTO_ICMP = 1
-val IPPROTO_ICMPV6 = 58
+const val IPPROTO_ICMP = 1
+const val IPPROTO_ICMPV6 = 58
 
-val ICMP_ECHO = 8.toShort()
-val ICMPV6_ECHO_REQUEST = 128.toShort()
-val ICMP_ECHOREPLY = 0.toShort()
-val ICMPV6_ECHO_REPLY = 129.toShort()
+const val ICMP_ECHO = 8.toShort()
+const val ICMPV6_ECHO_REQUEST = 128.toShort()
+const val ICMP_ECHOREPLY = 0.toShort()
+const val ICMPV6_ECHO_REPLY = 129.toShort()
 
 val SOL_SOCKET = if (isBSD) 0xffff else 1
 
@@ -185,11 +184,11 @@ interface LibC {
    @ssize_t fun write(fd:Int, @In data:ByteArray, @size_t size:Long) : Int
 }
 
-inline fun htons(s:Short) = java.lang.Short.reverseBytes(s)
+fun htons(s:Short) = java.lang.Short.reverseBytes(s)
 
-inline fun ntohs(s:Short) = java.lang.Short.reverseBytes(s)
+fun ntohs(s:Short) = java.lang.Short.reverseBytes(s)
 
-inline fun htoni(i:Int) = java.lang.Integer.reverseBytes(i)
+fun htoni(i:Int) = Integer.reverseBytes(i)
 
 fun htonl(value:Long) : Long {
    return ((value and 0xff000000) shr 24) or
@@ -210,22 +209,22 @@ class PollFd:Struct(runtime) {
 
    var fd: Int
       inline get() = htoni(_fd.get())
-      inline set(value: Int) = _fd.set(htoni(value))
+      inline set(value) = _fd.set(htoni(value))
 
    var events: Int
       inline get() = htons(_events.get()).toInt()
-      inline set(value: Int) = _events.set(htons(value.toShort()))
+      inline set(value) = _events.set(htons(value.toShort()))
 
    var revents: Int
       inline get() = htons(_revents.get()).toInt()
-      inline set(value: Int) = _revents.set(htons(value.toShort()))
+      inline set(value) = _revents.set(htons(value.toShort()))
 }
 
 // #define POLLIN		01              /* There is data to read.  */
 // #define POLLPRI		02              /* There is urgent data to read.  */
 // #define POLLOUT		04              /* Writing now will not block.  */
 // /* Event types always implicitly polled for.  These bits need not be set in
-//    `events', but they will appear in `revents' to indicate the status of
+//    'events', but they will appear in 'revents' to indicate the status of
 //    the file descriptor.  */
 // #define POLLERR         010             /* Error condition.  */
 const val POLLIN = 0x1
@@ -385,9 +384,9 @@ class Icmp6UnData:Union(runtime) {
    // u_int32_t icmp6_un_data32[1]; /* type-specific field */
    // u_int16_t icmp6_un_data16[2]; /* type-specific field */
    // u_int8_t icmp6_un_data8[4];  /* type-specific field */
-   val icmp6_un_data32 = Array(1, {Unsigned32()})
-   val icmp6_un_data16 = Array(2, {Unsigned16()})
-   val icmp6_un_data8 = Array(4, {Unsigned8()})
+   val icmp6_un_data32 = Array(1) { Unsigned32() }
+   val icmp6_un_data16 = Array(2) { Unsigned16() }
+   val icmp6_un_data8 = Array(4) { Unsigned8() }
 } //} icmp6_dataun;
 
 // See https://opensource.apple.com/source/network_cmds/network_cmds-329.2/ping.tproj/ping.c
