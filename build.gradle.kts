@@ -3,7 +3,7 @@ import org.gradle.api.tasks.testing.logging.TestLogEvent
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 var group = "com.zaxxer"
-var version = "1.3.2"
+var version = "2.0.0"
 var description = "Java Non-Blocking Ping (ICMP)"
 
 project.group = group
@@ -79,7 +79,7 @@ tasks {
 
 dependencies {
 	implementation("com.github.jnr:jnr-posix:3.1.20")
-	implementation("it.unimi.dsi:fastutil:8.5.15")
+	implementation("com.carrotsearch:hppc:0.10.0")
 
 	testImplementation("org.junit.jupiter:junit-jupiter-api:5.12.1")
 	testImplementation("org.junit.jupiter:junit-jupiter-engine:5.12.1")
