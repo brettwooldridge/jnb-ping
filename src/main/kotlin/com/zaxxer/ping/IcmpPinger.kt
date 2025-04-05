@@ -38,6 +38,7 @@ import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit.*
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.logging.Level
 import java.util.logging.Logger
 
 /**
@@ -215,7 +216,7 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
             if (fd6.revents and POLLIN_OR_PRI != 0) processReceives(fd6.fd)
 
             if (fd4.revents and POLLOUT != 0) processSends(pending4Pings, fd4.fd)
-            if (fd6.revents and POLLOUT != 0) processSends(pending4Pings, fd6.fd)
+            if (fd6.revents and POLLOUT != 0) processSends(pending6Pings, fd6.fd)
 
             fdPipe.revents = 0
             fd4.revents = 0
@@ -344,18 +345,18 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
          }
       }
 
-      LOGGER.finest {dumpBuffer(message = "Send buffer:", buffer = socketBuffer)}
+      if (LOGGER.level == Level.FINEST) LOGGER.finest { dumpBuffer(message = "Send buffer:", buffer = socketBuffer) }
 
       pingTarget.timestamp()
 
       val rc = libc.sendto(fd, outpacketPointer, SEND_PACKET_SIZE, 0, pingTarget.sockAddr, Struct.size(pingTarget.sockAddr))
       return if (rc == SEND_PACKET_SIZE) {
-          LOGGER.fine {"   ICMP packet(seq=${pingTarget.sequence}) send to ${pingTarget.inetAddress} successful"}
+          if (LOGGER.level == Level.FINE) LOGGER.fine {"   ICMP packet(seq=${pingTarget.sequence}) send to ${pingTarget.inetAddress} successful"}
           true
       }
       else {
-         LOGGER.fine {"   icmp sendto() to ${pingTarget.inetAddress} for seq=${pingTarget.sequence} returned $rc"}
-          false
+         if (LOGGER.level == Level.FINE) LOGGER.fine {"   icmp sendto() to ${pingTarget.inetAddress} for seq=${pingTarget.sequence} returned $rc"}
+         false
       }
    }
 
@@ -363,7 +364,7 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
 
       val cc = posix.recvmsg(fd, msgHdr, 0)
       if (cc > 0) {
-         LOGGER.finest {dumpBuffer("Ping response", socketBuffer)}
+         if (LOGGER.level == Level.FINEST) LOGGER.finest { dumpBuffer("Ping response", socketBuffer) }
 
          val isV4 = (recvIp.ip_vhl.get().toInt() and 0xf0) shr 4 == 4
 
