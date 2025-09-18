@@ -174,10 +174,6 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
          fd.revents = 0
       }
 
-      libc.pipe(pipefd)
-      setNonBlocking(pipefd[0])
-      setNonBlocking(pipefd[1])
-      fdPipe.fd = pipefd[0]
       fd4.fd = -1
       fd6.fd = -1
 
@@ -196,75 +192,79 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
       val infinite:Int = -1
       var pollTimeoutMs:Int = infinite
 
-      var noopLoops = 0
-      while (running) {
-         val rc = libc.poll(fdBufferPointer, FDS, pollTimeoutMs)
-         if (rc < 0) {
-            val errno = posix.errno()
-            if (errno != Errno.EINTR.intValue()) {
-               LOGGER.severe("poll() returned errno $errno")
-               break
-            }
-         }
+      try {
+         // To avoid leaks of file descriptors, creation and destruction
+         // of pipe channels is done during the runSelector call
+         libc.pipe(pipefd)
+         setNonBlocking(pipefd[0])
+         setNonBlocking(pipefd[1])
+         fdPipe.fd = pipefd[0]
 
-         awoken.compareAndSet(true, false)
-
-         if (fdPipe.revents and POLLIN_OR_PRI != 0) wakeupReceived()
-
-         if (rc > 0) {
-            if (fd4.revents and POLLERR != 0 || fd6.revents and POLLERR != 0) {
-               LOGGER.severe("poll() created a POLLERR event")
-               break
+         while (running) {
+            val rc = libc.poll(fdBufferPointer, FDS, pollTimeoutMs)
+            if (rc < 0) {
+               val errno = posix.errno()
+               if (errno != Errno.EINTR.intValue()) {
+                  LOGGER.severe("poll() returned errno $errno")
+                  break
+               }
             }
 
-            if (fd4.revents and POLLIN_OR_PRI != 0) processReceives(fd4.fd)
-            if (fd6.revents and POLLIN_OR_PRI != 0) processReceives(fd6.fd)
+            awoken.compareAndSet(true, false)
 
-            if (fd4.revents and POLLOUT != 0) processSends(pending4Pings, fd4.fd)
-            if (fd6.revents and POLLOUT != 0) processSends(pending6Pings, fd6.fd)
+            if (fdPipe.revents and POLLIN_OR_PRI != 0) wakeupReceived()
 
-            fdPipe.revents = 0
-            fd4.revents = 0
-            fd6.revents = 0
+            if (rc > 0) {
+               if (fd4.revents and POLLERR != 0 || fd6.revents and POLLERR != 0) {
+                  LOGGER.severe("poll() created a POLLERR event")
+                  break
+               }
+
+               if (fd4.revents and POLLIN_OR_PRI != 0) processReceives(fd4.fd)
+               if (fd6.revents and POLLIN_OR_PRI != 0) processReceives(fd6.fd)
+
+               if (fd4.revents and POLLOUT != 0) processSends(pending4Pings, fd4.fd)
+               if (fd6.revents and POLLOUT != 0) processSends(pending6Pings, fd6.fd)
+
+               fdPipe.revents = 0
+               fd4.revents = 0
+               fd6.revents = 0
+            }
+
+            val next4timeoutUsec = processTimeouts(waitingTargets4)
+            val next6timeoutUsec = processTimeouts(waitingTargets6)
+            val nextTimeoutUsec = minOf(next4timeoutUsec, next6timeoutUsec)
+
+            pollTimeoutMs = maxOf(MICROSECONDS.toMillis(nextTimeoutUsec), 1L).toInt()
+
+            LOGGER.fine(::logPendingPingsAndActors)
+
+            val isPending4reads = waitingTargets4.isNotEmpty()
+            val isPending6reads = waitingTargets6.isNotEmpty()
+            val isPending4writes = pending4Pings.isNotEmpty()
+            val isPending6writes = pending6Pings.isNotEmpty()
+
+            var fd4events = 0
+            var fd6events = 0
+            if (isPending4reads) fd4events = fd4events or POLLIN_OR_PRI
+            if (isPending6reads) fd6events = fd6events or POLLIN_OR_PRI
+            if (isPending4writes) fd4events = fd4events or POLLOUT
+            if (isPending6writes) fd6events = fd6events or POLLOUT
+            fd4.events = fd4events
+            fd6.events = fd6events
          }
+      } finally {
+         if (fd4.fd > 0) libc.close(fd4.fd)
+         if (fd6.fd > 0) libc.close(fd6.fd)
+         fd4.fd = -1
+         fd6.fd = -1
 
-         val next4timeoutUsec = processTimeouts(waitingTargets4)
-         val next6timeoutUsec = processTimeouts(waitingTargets6)
-         val nextTimeoutUsec = minOf(next4timeoutUsec, next6timeoutUsec)
-
-         pollTimeoutMs = maxOf(MICROSECONDS.toMillis(nextTimeoutUsec), 1L).toInt()
-
-         LOGGER.fine(::logPendingPingsAndActors)
-
-         val isPending4reads = waitingTargets4.isNotEmpty()
-         val isPending6reads = waitingTargets6.isNotEmpty()
-         val isPending4writes = pending4Pings.isNotEmpty()
-         val isPending6writes = pending6Pings.isNotEmpty()
-
-         var fd4events = 0
-         var fd6events = 0
-         if (isPending4reads) fd4events = fd4events or POLLIN_OR_PRI
-         if (isPending6reads) fd6events = fd6events or POLLIN_OR_PRI
-         if (isPending4writes) fd4events = fd4events or POLLOUT
-         if (isPending6writes) fd6events = fd6events or POLLOUT
-         fd4.events = fd4events
-         fd6.events = fd6events
-
-         if (isPending4reads || isPending6reads || isPending4writes || isPending6writes) {
-            noopLoops = 0
-         }
-         else if (noopLoops++ > 10) {
-            closeSockets()
-            pollTimeoutMs = infinite
-         }
-         else {
-            pollTimeoutMs = 1000
-         }
+         running = false
+         libc.close(pipefd[0])
+         libc.close(pipefd[1])
+         pipefd[0] = -1
+         pipefd[1] = -1
       }
-
-      libc.close(pipefd[0])
-      libc.close(pipefd[1])
-      closeSockets()
    }
 
    fun stopSelector() {
@@ -450,13 +450,6 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
       setNonBlocking(fd4.fd)
       setNonBlocking(fd6.fd)
 
-   }
-
-   private fun closeSockets() {
-      if (fd4.fd > 0) libc.close(fd4.fd)
-      if (fd6.fd > 0) libc.close(fd6.fd)
-      fd4.fd = 0
-      fd6.fd = 0
    }
 
    private fun logPendingPingsAndActors(): String =
