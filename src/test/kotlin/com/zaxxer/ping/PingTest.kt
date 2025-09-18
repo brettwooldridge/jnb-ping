@@ -1,6 +1,5 @@
 package com.zaxxer.ping
 
-import com.sun.management.UnixOperatingSystemMXBean
 import com.zaxxer.ping.impl.*
 import com.zaxxer.ping.impl.util.dumpBuffer
 import jnr.ffi.Platform
@@ -11,7 +10,6 @@ import org.junit.jupiter.api.MethodOrderer
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestMethodOrder
 import java.io.IOException
-import java.lang.management.ManagementFactory
 import java.net.Inet6Address
 import java.net.InetAddress
 import java.net.ServerSocket
@@ -24,8 +22,6 @@ import java.util.concurrent.atomic.AtomicInteger
 @TestMethodOrder(MethodOrderer.OrderAnnotation::class)
 class PingTest {
    private val runtime:jnr.ffi.Runtime = jnr.ffi.Runtime.getSystemRuntime()!!
-   private val platform: Platform = Platform.getNativePlatform()
-   private val isBSD = platform.isBSD
 
    @Test
    fun testChecksum() {
@@ -183,6 +179,52 @@ class PingTest {
       pinger.stopSelector()
 
       assertTrue(timeoutTargets.isEmpty(), "$timeoutTargets timed out.")
+
+   @Test
+   fun testTimeoutOrder() {
+      val pings = 512
+      val semaphore = Semaphore(pings)
+      val targets = List(pings) { i ->
+         PingTarget(
+            // Ping a non existing ip address
+            inetAddress = InetAddress.getByName("240.0.0.0"),
+            timeoutMs = 10L * i
+         )
+      }.shuffled()
+
+      val timeoutsOrder = ArrayList<Long>()
+
+      class PingHandler : PingResponseHandler {
+         override fun onResponse(pingTarget: PingTarget, responseTimeSec: Double, byteCount: Int, seq: Int) {
+            semaphore.release()
+         }
+
+         override fun onTimeout(pingTarget: PingTarget) {
+            timeoutsOrder.add(pingTarget.timeoutNs)
+            semaphore.release()
+         }
+      }
+
+      val pinger = IcmpPinger(PingHandler())
+
+      val selectorThread = Thread { pinger.runSelector() }
+      selectorThread.isDaemon = false
+      selectorThread.start()
+
+      MILLISECONDS.sleep(100)
+
+      semaphore.acquire(pings)
+
+      for (target in targets) {
+         pinger.ping(target)
+      }
+
+      semaphore.acquire(pings)
+
+      pinger.stopSelector()
+
+      assertEquals(pings, timeoutsOrder.size, "$pings targets must timeout.")
+      assertEquals(timeoutsOrder.sorted(), timeoutsOrder, "Targets must timeout in order.")
    }
 
    @Test

@@ -112,7 +112,12 @@ class PingTarget : Comparable<PingTarget> {
       complete = false
    }
 
-    override fun compareTo(other: PingTarget): Int = timeout.compareTo(other.timeout)
+    override fun compareTo(other: PingTarget): Int {
+       val timeoutDelta = timeout.compareTo(other.timeout)
+       if (timeoutDelta != 0)
+          return timeoutDelta
+       return sequence.compareTo(other.sequence)
+    }
 
    override fun toString(): String = inetAddress.toString()
 }

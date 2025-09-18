@@ -2,32 +2,35 @@ package com.zaxxer.ping.impl.util
 
 import com.zaxxer.ping.PingTarget
 import com.carrotsearch.hppc.ShortObjectHashMap
-import java.util.concurrent.PriorityBlockingQueue
+import java.util.TreeSet
 
-private const val INITIAL_CAPACITY = 16
-
+/**
+ * This class is not thread safe.
+ */
 class WaitingTargetCollection {
     private val waitingTargetMap = ShortObjectHashMap<PingTarget>()
-    private val targetTimeoutQueue = PriorityBlockingQueue<PingTarget>(INITIAL_CAPACITY)
+    /**
+     * Values are ordered by timeout and sequence.
+     */
+    private val targetTimeoutQueue = TreeSet<PingTarget>()
     val size
         get() = waitingTargetMap.size()
 
     fun add(target: PingTarget) {
         waitingTargetMap.put(target.sequence, target)
-        targetTimeoutQueue.put(target)
+        targetTimeoutQueue.add(target)
     }
 
     /**
      * This method is only called by the timeout handling code.  It returns the timestamp of the
-     * first item in the targetTimeoutQueue.
-     *
-     * We know this will never be called when the targetTimeoutQueue is empty.
+     * first item in the targetTimeoutQueue in nanoseconds.
      */
     fun peekTimeoutQueue(): Long? {
         do {
-            val pingTarget = targetTimeoutQueue.peek() ?: return null
+            val pingTarget = targetTimeoutQueue.firstOrNull() ?: return null
             if (pingTarget.complete) {
-                targetTimeoutQueue.take()
+                targetTimeoutQueue.removeFirst()
+                waitingTargetMap.remove(pingTarget.sequence)
                 continue
             }
             else
@@ -39,7 +42,7 @@ class WaitingTargetCollection {
      * This method is only called by the timeout handling code.
      */
     fun take(): PingTarget {
-        val pingTarget = targetTimeoutQueue.poll()
+        val pingTarget = targetTimeoutQueue.removeFirst()
         pingTarget.complete = true
         return waitingTargetMap.remove(pingTarget.sequence)
     }
@@ -50,6 +53,7 @@ class WaitingTargetCollection {
     fun remove(sequence: Short): PingTarget? {
         val pingTarget = waitingTargetMap.remove(sequence) ?: return null
         pingTarget.complete = true
+        targetTimeoutQueue.remove(pingTarget)
         return pingTarget
     }
 
