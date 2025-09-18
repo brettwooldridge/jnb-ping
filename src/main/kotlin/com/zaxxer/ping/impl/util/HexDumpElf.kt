@@ -30,7 +30,7 @@ internal fun dumpBuffer(message:String, buffer:ByteBuffer, offset:Int = 0) : Str
 
    return StringBuilder()
          .append("   $message\n")
-         .append(dump(0, bytes, 0, bytes.size))
+         .append(dump(0, bytes))
          .toString()
 }
 
@@ -45,7 +45,7 @@ internal fun dumpBuffer(message:String, buffer:ByteBuffer, offset:Int = 0) : Str
  * @param len the length of data to dump
  * @return the dump string
  */
-fun dump(displayOffset:Int, data:ByteArray, offset:Int, len:Int) : String {
+fun dump(displayOffset:Int, data:ByteArray, offset:Int = 0, len:Int = data.size) : String {
    val sb = StringBuilder()
    val formatter = Formatter(sb)
    val ascii = StringBuilder()
