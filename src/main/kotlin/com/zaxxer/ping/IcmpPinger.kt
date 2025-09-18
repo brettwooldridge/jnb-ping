@@ -203,8 +203,11 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
       while (running) {
          val rc = libc.poll(fdBufferPointer, FDS, pollTimeoutMs)
          if (rc < 0) {
-            LOGGER.severe {"poll() returned errno ${posix.errno()}"}
-            break
+            val errno = posix.errno()
+            if (errno != Errno.EINTR.intValue()) {
+               LOGGER.severe("poll() returned errno $errno")
+               break
+            }
          }
 
          awoken.compareAndSet(true, false)
