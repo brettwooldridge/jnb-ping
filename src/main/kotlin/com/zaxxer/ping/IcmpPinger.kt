@@ -196,9 +196,6 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
       val infinite:Int = -1
       var pollTimeoutMs:Int = infinite
 
-      val logPendingPings: () -> String = {"   Pending ping count ${pending4Pings.size + pending6Pings.size}"}
-      val logPendingActor: () -> String = {"   Pending actor count ${waitingTargets4.size + waitingTargets6.size}"}
-
       var noopLoops = 0
       while (running) {
          val rc = libc.poll(fdBufferPointer, FDS, pollTimeoutMs)
@@ -216,7 +213,7 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
 
          if (rc > 0) {
             if (fd4.revents and POLLERR != 0 || fd6.revents and POLLERR != 0) {
-               LOGGER.severe {"poll() created a POLLERR event"}
+               LOGGER.severe("poll() created a POLLERR event")
                break
             }
 
@@ -237,8 +234,7 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
 
          pollTimeoutMs = maxOf(MICROSECONDS.toMillis(nextTimeoutUsec), 1L).toInt()
 
-         LOGGER.fine(logPendingPings)
-         LOGGER.fine(logPendingActor)
+         LOGGER.fine(::logPendingPingsAndActors)
 
          val isPending4reads = waitingTargets4.isNotEmpty()
          val isPending6reads = waitingTargets6.isNotEmpty()
@@ -462,6 +458,10 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
       fd4.fd = 0
       fd6.fd = 0
    }
+
+   private fun logPendingPingsAndActors(): String =
+      "   Pending ping count ${pending4Pings.size + pending6Pings.size}\n" +
+      "   Pending actor count ${waitingTargets4.size + waitingTargets6.size}"
 }
 
 private fun setNonBlocking(fd: FD) {
