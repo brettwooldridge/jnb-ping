@@ -103,7 +103,7 @@ class PingTarget : Comparable<PingTarget> {
       this.timeoutMs = pingTarget.timeoutMs
       this.sockAddr = pingTarget.sockAddr
       this.isIPv4 = pingTarget.isIPv4
-      this.id = (ID_SEQUENCE.getAndIncrement() % 0xffff).toShort()
+      this.id = (ID_SEQUENCE.getAndIncrement() and 0xffff).toShort()
    }
 
    internal fun timestamp() {
@@ -323,7 +323,7 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
    private fun sendIcmp(pingTarget: PingTarget, fd: FD) : Boolean {
       prebuiltBufferPointer.transferTo(0, socketBufferPointer, 0, BUFFER_SIZE)
 
-      pingTarget.sequence = (SEQUENCE_SEQUENCE.getAndIncrement() % 0xffff).toShort()
+      pingTarget.sequence = (SEQUENCE_SEQUENCE.getAndIncrement() and 0xffff).toShort()
 
       if (pingTarget.isIPv4) {
          icmp.useMemory(outpacketPointer)
