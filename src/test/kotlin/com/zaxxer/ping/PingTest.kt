@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.MethodOrderer
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestMethodOrder
+import org.junit.jupiter.api.Timeout
 import java.io.IOException
 import java.net.Inet6Address
 import java.net.InetAddress
@@ -87,6 +88,7 @@ class PingTest {
    }
 
    @Test
+   @Timeout(60)
    @Throws(IOException::class)
    fun pingTest1() {
       val semaphore = Semaphore(2)
@@ -136,6 +138,7 @@ class PingTest {
    }
 
    //
+   @Timeout(60)
    @Throws(IOException::class)
    fun pingTestIpv6() {
       val semaphore = Semaphore(2)
@@ -181,6 +184,7 @@ class PingTest {
       assertTrue(timeoutTargets.isEmpty(), "$timeoutTargets timed out.")
 
    @Test
+   @Timeout(60)
    fun testTimeoutOrder() {
       val pings = 512
       val semaphore = Semaphore(pings)
@@ -228,6 +232,7 @@ class PingTest {
    }
 
    @Test
+   @Timeout(60)
    @Throws(IOException::class)
    fun testPingFailure() {
 
@@ -264,6 +269,7 @@ class PingTest {
    }
 
    @Test
+   @Timeout(60)
    fun testSimultaneousRequest() {
       val pingCount = 2
 
