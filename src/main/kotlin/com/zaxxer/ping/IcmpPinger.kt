@@ -16,7 +16,6 @@
 
 package com.zaxxer.ping
 
-import com.zaxxer.ping.IcmpPinger.Companion.ID_SEQUENCE
 import com.zaxxer.ping.impl.*
 import com.zaxxer.ping.impl.NativeStatic.Companion.isBSD
 import com.zaxxer.ping.impl.NativeStatic.Companion.libc
@@ -53,6 +52,9 @@ const val DEFAULT_TIMEOUT_USEC = 1000 * DEFAULT_TIMEOUT_MS
 const val BUFFER_SIZE = 128L
 const val PENDING_QUEUE_SIZE = 8192
 const val POLLIN_OR_PRI = POLLIN or POLLPRI
+
+// Negative file descriptors are ignored by libc.poll(), no need to change the count, or memory order of disabled FDs
+private const val FDS = 3
 
 typealias FD = Int
 
@@ -120,6 +122,10 @@ interface PingResponseHandler {
    fun onTimeout(pingTarget: PingTarget)
 }
 
+private val ID_SEQUENCE = AtomicInteger(0xCAFE)
+
+private val SEQUENCE_SEQUENCE = AtomicInteger(0xBABE)
+
 private val LOGGER = Logger.getLogger(IcmpPinger::class.java.name)
 
 class IcmpPinger(private val responseHandler:PingResponseHandler) {
@@ -130,45 +136,52 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
    private val pending4Pings = LinkedBlockingQueue<PingTarget>(PENDING_QUEUE_SIZE)
    private val pending6Pings = LinkedBlockingQueue<PingTarget>(PENDING_QUEUE_SIZE)
 
-   private lateinit var prebuiltBuffer:ByteBuffer
-   private lateinit var socketBuffer:ByteBuffer
-   private lateinit var fdBuffer:ByteBuffer
+   private val prebuiltBuffer:ByteBuffer = ByteBuffer.allocateDirect(BUFFER_SIZE.toInt())
+   private val socketBuffer:ByteBuffer = ByteBuffer.allocateDirect(BUFFER_SIZE.toInt())
+   private val fdBuffer:ByteBuffer = ByteBuffer.allocateDirect(SIZEOF_STRUCT_POLL_FD * FDS)
 
-   private lateinit var prebuiltBufferPointer:Pointer
-   private lateinit var socketBufferPointer:Pointer
-   private lateinit var outpacketPointer:Pointer
-   private lateinit var fdBufferPointer:Pointer
+   private val prebuiltBufferPointer:Pointer = runtime.memoryManager.newPointer(prebuiltBuffer)
+   private val socketBufferPointer:Pointer = runtime.memoryManager.newPointer(socketBuffer)
+   private val outpacketPointer:Pointer = socketBufferPointer.slice(SIZEOF_STRUCT_IP.toLong())
+   private val fdBufferPointer:Pointer = runtime.memoryManager.newPointer(fdBuffer)
 
-   private lateinit var icmp:Icmp
-   private lateinit var icmp6:Icmp6
-   private lateinit var recvIp:Ip
-   private lateinit var msgHdr:MsgHdr
-   private lateinit var fd4:PollFd
-   private lateinit var fd6:PollFd
-   private lateinit var fdPipe:PollFd
+   private val icmp:Icmp = Icmp()
+   private val icmp6:Icmp6 = Icmp6()
+   private val recvIp:Ip = Ip()
+   private val msgHdr:MsgHdr = posix.allocateMsgHdr()
 
-   private val awoken = AtomicBoolean()
-   private val pipefd = IntArray(2)
-   private var fds:Int = 1
+   private val fdPipe:PollFd = PollFd()
+   private val fd4:PollFd = PollFd()
+   private val fd6:PollFd = PollFd()
+
+   private val awoken = AtomicBoolean(false)
+   private val pipefd = IntArray(2) { -1 }
+
    @Volatile private var running = true
 
-   companion object {
-      @JvmStatic
-      internal val ID_SEQUENCE = AtomicInteger(0xCAFE)
-
-      @JvmStatic
-      internal val SEQUENCE_SEQUENCE = AtomicInteger(0xBABE)
-   }
-
    init {
-      pipefd[0] = -1
-      pipefd[1] = -1
-      libc.pipe(pipefd)
+      val tmpBuffer = prebuiltBuffer.duplicate()
+      tmpBuffer.position(SIZEOF_STRUCT_IP + ICMP_MINLEN)
+      for (i in 0 until DEFAULT_DATALEN)
+         tmpBuffer.put(i.toByte())
 
+      icmp.useMemory(outpacketPointer)
+      recvIp.useMemory(socketBufferPointer)
+
+      arrayOf(fdPipe, fd4, fd6).forEachIndexed { i, fd ->
+         fd.useMemory(fdBufferPointer.slice(SIZEOF_STRUCT_POLL_FD.toLong() * i))
+         fd.events = POLLIN_OR_PRI or POLLOUT or POLLERR
+         fd.revents = 0
+      }
+
+      libc.pipe(pipefd)
       setNonBlocking(pipefd[0])
       setNonBlocking(pipefd[1])
+      fdPipe.fd = pipefd[0]
+      fd4.fd = -1
+      fd6.fd = -1
 
-      buildBuffers()
+      msgHdr.iov = arrayOf(socketBuffer)
    }
 
    fun ping(pingTarget: PingTarget) {
@@ -188,7 +201,7 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
 
       var noopLoops = 0
       while (running) {
-         val rc = libc.poll(fdBufferPointer, fds, pollTimeoutMs)
+         val rc = libc.poll(fdBufferPointer, FDS, pollTimeoutMs)
          if (rc < 0) {
             LOGGER.severe {"poll() returned errno ${posix.errno()}"}
             break
@@ -438,7 +451,6 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
       setNonBlocking(fd4.fd)
       setNonBlocking(fd6.fd)
 
-      fds = 3
    }
 
    private fun closeSockets() {
@@ -446,50 +458,6 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
       if (fd6.fd > 0) libc.close(fd6.fd)
       fd4.fd = 0
       fd6.fd = 0
-      fds = 1
-   }
-
-   private fun buildBuffers() {
-      prebuiltBuffer = ByteBuffer.allocateDirect(BUFFER_SIZE.toInt())
-      prebuiltBufferPointer = runtime.memoryManager.newPointer(prebuiltBuffer)
-
-      socketBuffer = ByteBuffer.allocateDirect(BUFFER_SIZE.toInt())
-      socketBufferPointer = runtime.memoryManager.newPointer(socketBuffer)
-
-      fdBuffer = ByteBuffer.allocateDirect(SIZEOF_STRUCT_POLL_FD.toInt() * 3)
-      fdBufferPointer = runtime.memoryManager.newPointer(fdBuffer)
-
-      outpacketPointer = socketBufferPointer.slice(SIZEOF_STRUCT_IP.toLong())
-
-      val tmpBuffer = prebuiltBuffer.duplicate()
-      tmpBuffer.position(SIZEOF_STRUCT_IP + ICMP_MINLEN)
-      for (i in 0 until DEFAULT_DATALEN)
-         tmpBuffer.put(i.toByte())
-
-      icmp = Icmp()
-      icmp.useMemory(outpacketPointer)
-
-      icmp6 = Icmp6()
-
-      recvIp = Ip()
-      recvIp.useMemory(socketBufferPointer)
-
-      fdPipe = PollFd()
-      fd4 = PollFd()
-      fd6 = PollFd()
-
-      arrayOf(fdPipe, fd4, fd6).forEachIndexed { i, fd ->
-         fd.useMemory(fdBufferPointer.slice(SIZEOF_STRUCT_POLL_FD.toLong() * i))
-         fd.events = POLLIN_OR_PRI or POLLOUT or POLLERR
-         fd.revents = 0
-      }
-
-      fdPipe.fd = pipefd[0]
-      fd4.fd = 0
-      fd6.fd = 0
-
-      msgHdr = posix.allocateMsgHdr()
-      msgHdr.iov = arrayOf(socketBuffer)
    }
 }
 
