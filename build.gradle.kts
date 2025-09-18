@@ -3,7 +3,7 @@ import org.gradle.api.tasks.testing.logging.TestLogEvent
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 var group = "com.zaxxer"
-var version = "2.0.1"
+var version = "2.1.0"
 var description = "Java Non-Blocking Ping (ICMP)"
 
 project.group = group
