@@ -63,7 +63,6 @@ class PingTarget : Comparable<PingTarget> {
    private val timeoutMs: Long
    internal val id: Short
    internal val sockAddr: SockAddr
-   internal val isIPv4: Boolean
 
    // Assigned during operation
    internal var sequence: Short = 0
@@ -79,21 +78,13 @@ class PingTarget : Comparable<PingTarget> {
       this.timeoutMs = timeoutMs
       this.id = 0
 
-      if (inetAddress is Inet4Address) {
-         isIPv4 = true
-         sockAddr = if (isBSD) {
-            BSDSockAddr4(inetAddress)
-         } else {
-            LinuxSockAddr4(inetAddress)
-         }
-      }
-      else {  // IPv6
-         isIPv4 = false
-         sockAddr = if (isBSD) {
-            BSDSockAddr6(inetAddress as Inet6Address)
-         } else {
-            LinuxSockAddr6(inetAddress as Inet6Address)
-         }
+      this.sockAddr = when (inetAddress) {
+         is Inet4Address ->
+            if (isBSD) BSDSockAddr4(inetAddress)
+            else LinuxSockAddr4(inetAddress)
+         is Inet6Address ->
+            if (isBSD) BSDSockAddr6(inetAddress)
+            else LinuxSockAddr6(inetAddress)
       }
    }
 
@@ -102,9 +93,10 @@ class PingTarget : Comparable<PingTarget> {
       this.userObject = pingTarget.userObject
       this.timeoutMs = pingTarget.timeoutMs
       this.sockAddr = pingTarget.sockAddr
-      this.isIPv4 = pingTarget.isIPv4
       this.id = (ID_SEQUENCE.getAndIncrement() and 0xffff).toShort()
    }
+
+   internal fun isIPv4() = this.inetAddress is Inet4Address
 
    internal fun timestamp() {
       timestampNs = nanoTime()
@@ -180,13 +172,8 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
    }
 
    fun ping(pingTarget: PingTarget) {
-      if (pingTarget.isIPv4) {
-         pending4Pings.offer(PingTarget(pingTarget))
-      }
-      else {
-         pending6Pings.offer(PingTarget(pingTarget))
-      }
-
+      val pendingPings = if (pingTarget.isIPv4()) pending4Pings else pending6Pings
+      pendingPings.offer(PingTarget(pingTarget))
       if (awoken.compareAndSet(false, true)) {
          wakeup()
       }
@@ -283,7 +270,7 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
       while (pendingPings.isNotEmpty()) {
          val pingTarget = pendingPings.take()
          if (sendIcmp(pingTarget, fd)) {
-            if (pingTarget.isIPv4) {
+            if (pingTarget.isIPv4()) {
                waitingTargets4.add(pingTarget)
             } else {
                waitingTargets6.add(pingTarget)
@@ -325,7 +312,7 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
 
       pingTarget.sequence = (SEQUENCE_SEQUENCE.getAndIncrement() and 0xffff).toShort()
 
-      if (pingTarget.isIPv4) {
+      if (pingTarget.isIPv4()) {
          icmp.useMemory(outpacketPointer)
          icmp.icmp_hun.ih_idseq.icd_seq.set(htons(pingTarget.sequence))
          icmp.icmp_hun.ih_idseq.icd_id.set(htons(pingTarget.id))
