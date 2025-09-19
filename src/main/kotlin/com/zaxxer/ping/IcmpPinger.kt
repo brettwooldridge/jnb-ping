@@ -241,9 +241,11 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
                }
             }
 
-            awoken.compareAndSet(true, false)
-
-            if (fdPipe.revents and POLLIN_OR_PRI != 0) wakeupReceived()
+            val wokeUp = fdPipe.revents and POLLIN_OR_PRI != 0
+            if (wokeUp) {
+               wakeupReceived()
+               awoken.compareAndSet(true, false)
+            }
 
             if (rc > 0) {
                if (fd4.revents and POLLERR != 0 || fd6.revents and POLLERR != 0) {
