@@ -181,7 +181,7 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
    private val awoken = AtomicBoolean(false)
    private val pipefd = IntArray(2) { -1 }
 
-   @Volatile private var running = true
+   private var running = AtomicBoolean(false)
 
    init {
       val tmpBuffer = prebuiltBuffer.duplicate()
@@ -217,6 +217,11 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
       var pollTimeoutMs:Int = infinite
 
       try {
+         check(running.compareAndSet(false, true)) {
+            LOGGER.severe("Selector is already running")
+            "Selector is already running"
+         }
+
          // To avoid leaks of file descriptors, creation and destruction
          // of pipe channels is done during the runSelector call
          synchronized(pipefd) {
@@ -226,7 +231,7 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
             fdPipe.fd = pipefd[0]
          }
 
-         while (running) {
+         while (running.get()) {
             val rc = libc.poll(fdBufferPointer, FDS, pollTimeoutMs)
             if (rc < 0) {
                val errno = posix.errno()
@@ -298,8 +303,9 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
    }
 
    fun stopSelector() {
-      running = false
-      wakeup()
+      if (running.compareAndSet(true, false)) {
+         wakeup()
+      }
    }
 
    fun isPendingWork() = pending4Pings.isNotEmpty() || pending6Pings.isNotEmpty() || waitingTargets4.isNotEmpty() || waitingTargets6.isNotEmpty()
