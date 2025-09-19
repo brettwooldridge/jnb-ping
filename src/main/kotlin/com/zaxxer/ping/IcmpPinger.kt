@@ -48,7 +48,6 @@ import java.util.logging.Logger
  */
 
 const val DEFAULT_TIMEOUT_MS = 1000L
-const val DEFAULT_TIMEOUT_USEC = 1000 * DEFAULT_TIMEOUT_MS
 const val BUFFER_SIZE = 128L
 const val PENDING_QUEUE_SIZE = 8192
 const val POLLIN_OR_PRI = POLLIN or POLLPRI
@@ -69,7 +68,7 @@ class PingTarget : Comparable<PingTarget> {
    // Assigned during operation
    internal var sequence: Short = 0
    internal var timestampNs: Long = 0L
-   internal var timeout = 0L
+   internal var timeoutNs = 0L
    @Volatile internal var complete = false
 
    @JvmOverloads constructor(inetAddress: InetAddress,
@@ -102,12 +101,12 @@ class PingTarget : Comparable<PingTarget> {
 
    internal fun timestamp() {
       timestampNs = nanoTime()
-      timeout = timestampNs + MILLISECONDS.toNanos(timeoutMs)
+      timeoutNs = timestampNs + MILLISECONDS.toNanos(timeoutMs)
       complete = false
    }
 
     override fun compareTo(other: PingTarget): Int {
-       val timeoutDelta = timeout.compareTo(other.timeout)
+       val timeoutDelta = timeoutNs.compareTo(other.timeoutNs)
        if (timeoutDelta != 0)
           return timeoutDelta
        return sequence.compareTo(other.sequence)
@@ -231,11 +230,13 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
                fd6.revents = 0
             }
 
-            val next4timeoutUsec = processTimeouts(waitingTargets4)
-            val next6timeoutUsec = processTimeouts(waitingTargets6)
-            val nextTimeoutUsec = minOf(next4timeoutUsec, next6timeoutUsec)
-
-            pollTimeoutMs = maxOf(MICROSECONDS.toMillis(nextTimeoutUsec), 1L).toInt()
+            val next4TimeoutMs = processTimeouts(waitingTargets4)
+            val next6TimeoutMs = processTimeouts(waitingTargets6)
+            if (next4TimeoutMs != null && next6TimeoutMs != null) {
+               pollTimeoutMs = minOf(next4TimeoutMs, next6TimeoutMs)
+            } else {
+               pollTimeoutMs = next4TimeoutMs ?: next6TimeoutMs ?: infinite
+            }
 
             LOGGER.fine(::logPendingPingsAndActors)
 
@@ -301,22 +302,19 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
       } while (more)
    }
 
-   private fun processTimeouts(targets: WaitingTargetCollection) : Long {
-      while (targets.isNotEmpty()) {
-         val now = nanoTime()
-         val timeout = targets.peekTimeoutQueue() ?: return DEFAULT_TIMEOUT_USEC
-         if (now < timeout) return NANOSECONDS.toMicros(timeout - now)
+   private fun processTimeouts(targets: WaitingTargetCollection) : Int? {
+      while (true) {
+         val timeoutNs = targets.peekTimeoutQueue() ?: return null
+         val nowNs = nanoTime()
+         val remainingMs = NANOSECONDS.toMillis(timeoutNs - nowNs)
+         if (remainingMs > 0) {
+            return minOf(remainingMs, Int.MAX_VALUE.toLong()).toInt()
+         }
 
          try {
-            val pingTarget = targets.take()
-            responseHandler.onTimeout(pingTarget)
-         }
-         catch (e:Exception) {
-            continue
-         }
+            responseHandler.onFailure(targets.take(), FailureReason.TimedOut)
+         } catch (_:Exception) {}
       }
-
-      return DEFAULT_TIMEOUT_USEC
    }
 
    private fun sendIcmp(pingTarget: PingTarget, fd: FD) : Boolean {

@@ -33,8 +33,7 @@ class WaitingTargetCollection {
                 waitingTargetMap.remove(pingTarget.sequence)
                 continue
             }
-            else
-                return pingTarget.timeout
+            return pingTarget.timeoutNs
         } while (true)
     }
 
@@ -57,9 +56,5 @@ class WaitingTargetCollection {
         return pingTarget
     }
 
-    fun size() = waitingTargetMap.size()
-
     fun isNotEmpty() = !waitingTargetMap.isEmpty
-
-    fun isEmpty() = waitingTargetMap.isEmpty
 }
