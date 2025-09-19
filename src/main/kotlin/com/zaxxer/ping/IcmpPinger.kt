@@ -219,10 +219,12 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
       try {
          // To avoid leaks of file descriptors, creation and destruction
          // of pipe channels is done during the runSelector call
-         libc.pipe(pipefd)
-         setNonBlocking(pipefd[0])
-         setNonBlocking(pipefd[1])
-         fdPipe.fd = pipefd[0]
+         synchronized(pipefd) {
+            libc.pipe(pipefd)
+            setNonBlocking(pipefd[0])
+            setNonBlocking(pipefd[1])
+            fdPipe.fd = pipefd[0]
+         }
 
          while (running) {
             val rc = libc.poll(fdBufferPointer, FDS, pollTimeoutMs)
@@ -285,11 +287,13 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
          fd4.fd = -1
          fd6.fd = -1
 
-         running = false
-         libc.close(pipefd[0])
-         libc.close(pipefd[1])
-         pipefd[0] = -1
-         pipefd[1] = -1
+         synchronized(pipefd) {
+            running.set(false)
+            libc.close(pipefd[0])
+            libc.close(pipefd[1])
+            pipefd[0] = -1
+            pipefd[1] = -1
+         }
       }
    }
 
@@ -458,7 +462,13 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
       return true
    }
 
-   private fun wakeup() = libc.write(pipefd[1], ByteArray(1), 1)
+   private fun wakeup() {
+      synchronized(pipefd) {
+         if (pipefd[1] > 0) {
+            libc.write(pipefd[1], ByteArray(1), 1)
+         }
+      }
+   }
 
    private fun wakeupReceived() {
       while (libc.read(pipefd[0], ByteArray(1), 1) > 0) {
