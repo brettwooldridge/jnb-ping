@@ -2,7 +2,6 @@ package com.zaxxer.ping
 
 import com.zaxxer.ping.impl.*
 import com.zaxxer.ping.impl.util.dumpBuffer
-import jnr.ffi.Platform
 import jnr.ffi.Struct
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -13,7 +12,6 @@ import org.junit.jupiter.api.Timeout
 import java.io.IOException
 import java.net.Inet6Address
 import java.net.InetAddress
-import java.net.ServerSocket
 import java.nio.ByteBuffer
 import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
@@ -101,9 +99,11 @@ class PingTest {
             semaphore.release()
          }
 
-         override fun onTimeout(pingTarget : PingTarget) {
-            println("  ${Thread.currentThread()} Timeout")
-            timeoutTargets.add(pingTarget)
+         override fun onFailure(pingTarget: PingTarget, failureReason: FailureReason) {
+            println("  ${Thread.currentThread()} Failed: $failureReason")
+            if (failureReason == FailureReason.TimedOut) {
+               timeoutTargets.add(pingTarget)
+            }
             semaphore.release()
          }
       }
@@ -142,7 +142,7 @@ class PingTest {
    @Throws(IOException::class)
    fun pingTestIpv6() {
       val semaphore = Semaphore(2)
-      val timeoutTargets = HashSet<PingTarget>()
+      val failedTargets = ArrayList<PingTarget>()
 
       class PingHandler : PingResponseHandler {
          override fun onResponse(pingTarget: PingTarget, responseTimeSec: Double, byteCount: Int, seq: Int) {
@@ -152,9 +152,9 @@ class PingTest {
             semaphore.release()
          }
 
-         override fun onTimeout(pingTarget: PingTarget) {
-            println("  ${Thread.currentThread()} Timeout")
-            timeoutTargets.add(pingTarget)
+         override fun onFailure(pingTarget: PingTarget, failureReason: FailureReason) {
+            println("  ${Thread.currentThread()} Failed: $failureReason")
+            failedTargets.add(pingTarget)
             semaphore.release()
          }
       }
@@ -181,7 +181,8 @@ class PingTest {
 
       pinger.stopSelector()
 
-      assertTrue(timeoutTargets.isEmpty(), "$timeoutTargets timed out.")
+      assertTrue(failedTargets.isEmpty(), "$failedTargets failed.")
+   }
 
    @Test
    @Timeout(60)
@@ -203,8 +204,10 @@ class PingTest {
             semaphore.release()
          }
 
-         override fun onTimeout(pingTarget: PingTarget) {
-            timeoutsOrder.add(pingTarget.timeoutNs)
+         override fun onFailure(pingTarget: PingTarget, failureReason: FailureReason) {
+            if (failureReason == FailureReason.TimedOut) {
+               timeoutsOrder.add(pingTarget.timeoutNs)
+            }
             semaphore.release()
          }
       }
@@ -243,9 +246,11 @@ class PingTest {
             println("  ${Thread.currentThread()} Success response unexpected.")
          }
 
-         override fun onTimeout(pingTarget : PingTarget) {
-            println("  ${Thread.currentThread()} Timeout")
-            timedOut = true
+         override fun onFailure(pingTarget : PingTarget, failureReason: FailureReason) {
+            println("  ${Thread.currentThread()} Failed: $failureReason")
+            if (failureReason == FailureReason.TimedOut) {
+               timedOut = true
+            }
          }
       }
 
@@ -279,10 +284,13 @@ class PingTest {
       val successCount = AtomicInteger(0)
       val pinger = IcmpPinger(object : PingResponseHandler {
          override fun onResponse(pingTarget: PingTarget, responseTimeSec: Double, byteCount: Int, seq: Int) {
+            println("  ${Thread.currentThread()} Success response.")
             successCount.incrementAndGet()
+            semaphore.release()
          }
 
-         override fun onTimeout(pingTarget: PingTarget) {
+         override fun onFailure(pingTarget: PingTarget, failureReason: FailureReason) {
+            println("  ${Thread.currentThread()} Failed: $failureReason")
             semaphore.release()
          }
       })

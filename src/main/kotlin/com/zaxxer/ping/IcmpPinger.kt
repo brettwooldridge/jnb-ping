@@ -118,7 +118,32 @@ class PingTarget : Comparable<PingTarget> {
 interface PingResponseHandler {
    fun onResponse(pingTarget: PingTarget, responseTimeSec: Double, byteCount: Int, seq: Int)
 
-   fun onTimeout(pingTarget: PingTarget)
+   fun onFailure(pingTarget: PingTarget, failureReason: FailureReason)
+}
+
+enum class FailureReason {
+   /**
+    * Ping timed out due to not receiving an ICMP ECHO response in time.
+    */
+   TimedOut,
+   /**
+    * Unable to create IPv4 or IPv6 socket. Could mean that user the application is running with doesn't have enough
+    * privileges, or a specific IP family might be disabled.
+    * If this is Linux, you might need to set `sysctl net.ipv4.ping_group_range` or `sysctl net.ipv6.ping_group_range`.
+    */
+   UnableToCreateSocket,
+   /**
+    * Unable to send ICMP ping.
+    */
+   UnableToSendIcmpPing,
+   ;
+
+   override fun toString(): String =
+      when (this) {
+         TimedOut -> "Ping timed out"
+         UnableToCreateSocket -> "Unable to create socket"
+         UnableToSendIcmpPing -> "Unable to send ICMP ping"
+      }
 }
 
 private val ID_SEQUENCE = AtomicInteger(0xCAFE)
@@ -219,11 +244,11 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
                   break
                }
 
-               if (fd4.revents and POLLIN_OR_PRI != 0) processReceives(fd4.fd, true)
-               if (fd6.revents and POLLIN_OR_PRI != 0) processReceives(fd6.fd, false)
+               if (fd4.fd > 0 && fd4.revents and POLLIN_OR_PRI != 0) processReceives(fd4.fd, true)
+               if (fd6.fd > 0 && fd6.revents and POLLIN_OR_PRI != 0) processReceives(fd6.fd, false)
 
-               if (fd4.revents and POLLOUT != 0) processSends(pending4Pings, fd4.fd)
-               if (fd6.revents and POLLOUT != 0) processSends(pending6Pings, fd6.fd)
+               if (fd4.revents and POLLOUT != 0) processSends(pending4Pings, waitingTargets4, fd4, true)
+               if (fd6.revents and POLLOUT != 0) processSends(pending6Pings, waitingTargets6, fd6, false)
 
                fdPipe.revents = 0
                fd4.revents = 0
@@ -279,20 +304,41 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
     *                                     Private Methods
     */
 
-   private fun processSends(pendingPings:LinkedBlockingQueue<PingTarget>, fd:FD) {
-      while (pendingPings.isNotEmpty()) {
-         val pingTarget = pendingPings.take()
-         if (sendIcmp(pingTarget, fd)) {
-            if (pingTarget.isIPv4()) {
-               waitingTargets4.add(pingTarget)
+
+   private fun processSends(pendingPings: LinkedBlockingQueue<PingTarget>, waitingTargets: WaitingTargetCollection, fd: PollFd, isIPv4: Boolean) {
+      if (pendingPings.isEmpty()) return
+
+      if (fd.fd < 0) {
+         fd.fd = createSocket(isIPv4)
+         if (fd.fd < 0) {
+            if (isIPv4) {
+               LOGGER.warning("Unable to create IPv4 socket. If this is Linux, you might need to set sysctl net.ipv4.ping_group_range")
             } else {
-               waitingTargets6.add(pingTarget)
+               LOGGER.warning("Unable to create IPv6 socket. If this is Linux, you might need to set sysctl net.ipv6.ping_group_range")
             }
+
+            declinePings(pendingPings, FailureReason.UnableToCreateSocket)
+            return
          }
-         else {
-            responseHandler.onTimeout(pingTarget)
-            break
-         }
+      }
+
+      while (true) {
+         val pingTarget = pendingPings.poll() ?: return
+         if (sendIcmp(pingTarget, fd.fd)) {
+            waitingTargets.add(pingTarget)
+         } else try {
+            responseHandler.onFailure(pingTarget, FailureReason.UnableToSendIcmpPing)
+         } catch (_:Exception) {}
+      }
+   }
+
+   private fun declinePings(pendingPings: LinkedBlockingQueue<PingTarget>, failureReason: FailureReason) {
+      while (true) {
+         // Taking atomically to avoid race conditions
+         val pendingPing = pendingPings.poll() ?: return
+         try {
+            responseHandler.onFailure(pendingPing, failureReason)
+         } catch (_:Exception) {}
       }
    }
 
@@ -418,35 +464,27 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
       while (libc.read(pipefd[0], ByteArray(1), 1) > 0) {
          // drain the wakeup pipe
       }
-
-      if (fd4.fd == 0) {
-         createSockets()
-      }
    }
 
-   private fun createSockets() {
-      fd4.fd = libc.socket(PF_INET, SOCK_DGRAM, IPPROTO_ICMP)
-      if (fd4.fd < 0)
-         error("Unable to create IPv4 socket.  If this is Linux, you might need to set sysctl net.ipv4.ping_group_range")
-      fd6.fd = libc.socket(PF_INET6, SOCK_DGRAM, IPPROTO_ICMPV6)
-      if (fd6.fd < 0)
-         error("Unable to create IPv6 socket.  If this is Linux, you might need to set sysctl net.ipv6.ping_group_range")
+    private fun createSocket(isIPv4: Boolean): FD {
+       val fd = when (isIPv4) {
+          true -> libc.socket(PF_INET, SOCK_DGRAM, IPPROTO_ICMP)
+          false -> libc.socket(PF_INET6, SOCK_DGRAM, IPPROTO_ICMPV6)
+       }
 
-      val on = IntByReference(1)
-      libc.setsockopt(fd4.fd, SOL_SOCKET, SO_TIMESTAMP, on, on.nativeSize(runtime))
-      libc.setsockopt(fd6.fd, SOL_SOCKET, SO_TIMESTAMP, on, on.nativeSize(runtime))
+       if (fd > 0) {
+          val on = IntByReference(1)
+          libc.setsockopt(fd, SOL_SOCKET, SO_TIMESTAMP, on, on.nativeSize(runtime))
 
-      libc.setsockopt(fd4.fd, SOL_SOCKET, SO_REUSEPORT, on, on.nativeSize(runtime))
-      libc.setsockopt(fd6.fd, SOL_SOCKET, SO_REUSEPORT, on, on.nativeSize(runtime))
+          // Better handled by altering the OS default rcvbuf size
+          // val rcvbuf = IntByReference(2048)
+          // libc.setsockopt(fd, SOL_SOCKET, SO_RCVBUF, rcvbuf, rcvbuf.nativeSize(runtime))
 
-      // Better handled by altering the OS default rcvbuf size
-      // val rcvbuf = IntByReference(2048)
-      // libc.setsockopt(fd, SOL_SOCKET, SO_RCVBUF, rcvbuf, rcvbuf.nativeSize(runtime))
+          setNonBlocking(fd)
+       }
 
-      setNonBlocking(fd4.fd)
-      setNonBlocking(fd6.fd)
-
-   }
+       return fd
+    }
 
    private fun logPendingPingsAndActors(): String =
       "   Pending ping count ${pending4Pings.size + pending6Pings.size}\n" +

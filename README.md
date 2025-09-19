@@ -16,14 +16,16 @@ class PingHandler : PingResponseHandler {
       System.out.printf("  ${Thread.currentThread()} $byteCount bytes from $pingTarget: icmp_seq=$seq time=%1.6f\n", responseTimeSec)
    }
 
-   override fun onTimeout(pingTarget: PingTarget) {
-      System.out.println("  ${Thread.currentThread()} Timeout $pingTarget")
+   override fun onFailure(pingTarget : PingTarget, failureReason: FailureReason) {
+      System.out.println("  ${Thread.currentThread()} Ping failed: $failureReason")
    }
 }
 
 val pinger = IcmpPinger(PingHandler())
 
-Thread( { pinger.runSelector() } ).start()
+Thread { pinger.runSelector() }.start()
+
+Thread.sleep(100)
 
 pinger.ping( PingTarget(InetAddress.getByName("8.8.8.8")) )
 pinger.ping( PingTarget(InetAddress.getByName("youtube.com")) )
