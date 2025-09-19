@@ -219,8 +219,8 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
                   break
                }
 
-               if (fd4.revents and POLLIN_OR_PRI != 0) processReceives(fd4.fd)
-               if (fd6.revents and POLLIN_OR_PRI != 0) processReceives(fd6.fd)
+               if (fd4.revents and POLLIN_OR_PRI != 0) processReceives(fd4.fd, true)
+               if (fd6.revents and POLLIN_OR_PRI != 0) processReceives(fd6.fd, false)
 
                if (fd4.revents and POLLOUT != 0) processSends(pending4Pings, fd4.fd)
                if (fd6.revents and POLLOUT != 0) processSends(pending6Pings, fd6.fd)
@@ -296,9 +296,9 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
       }
    }
 
-   private fun processReceives(fd: FD) {
+   private fun processReceives(fd: FD, isIPv4: Boolean) {
       do {
-         val more = recvIcmp(fd) // read and lookup actor id in map
+         val more = recvIcmp(fd, isIPv4) // read and lookup actor id in map
       } while (more)
    }
 
@@ -362,56 +362,54 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
       }
    }
 
-   private fun recvIcmp(fd: FD) : Boolean {
+   private fun recvIcmp(fd: FD, isIPv4: Boolean) : Boolean {
 
       val cc = posix.recvmsg(fd, msgHdr, 0)
-      if (cc > 0) {
-         if (LOGGER.level == Level.FINEST) LOGGER.finest { dumpBuffer("Ping response", socketBuffer) }
-
-         val isV4 = (recvIp.ip_vhl.get().toInt() and 0xf0) shr 4 == 4
-
-         val headerLen= if (isBSD && isV4) (recvIp.ip_vhl.get().toInt() and 0x0f shl 2) else 0
-
-         icmp.useMemory(socketBufferPointer.slice(headerLen.toLong()))
-         icmp6.useMemory(socketBufferPointer)
-
-         val icmpType = icmp.icmp_type.get()
-
-         if (icmpType != ICMP_ECHOREPLY && icmpType != ICMPV6_ECHO_REPLY) {
-            LOGGER.fine { "   ^ Opps, not our response." }
-         } else {
-            val seq = if (icmpType == ICMP_ECHOREPLY) {
-               ntohs(icmp.icmp_hun.ih_idseq.icd_seq.shortValue())
-            } else {
-               ntohs(icmp6.icmp6_dataun.icmp6_un_data32[0].shortValue())
-            }
-
-            waitingTargets4
-               .remove(seq)
-               ?.let { pingTarget ->
-                  val elapsedus = NANOSECONDS.toMicros(nanoTime() - pingTarget.timestampNs)
-                  val triptime = elapsedus.toDouble() / 1_000_000.0
-
-                  responseHandler.onResponse(pingTarget, triptime, cc, seq.toInt())
-               }
-            waitingTargets6
-               .remove(seq)
-               ?.let { pingTarget ->
-                  val elapsedus = NANOSECONDS.toMicros(nanoTime() - pingTarget.timestampNs)
-                  val triptime = elapsedus.toDouble() / 1_000_000.0
-
-                  responseHandler.onResponse(pingTarget, triptime, cc, seq.toInt())
-            }
-         }
-      }
-      else {
+      if (cc < 0) {
          val errno = posix.errno()
-         if (errno != Errno.EINTR.intValue() && errno != Errno.EAGAIN.intValue()) {
-            LOGGER.fine {"   Error code $errno returned from pingChannel.read()"}
+         if (errno == Errno.EINTR.intValue() && errno == Errno.EAGAIN.intValue()) {
+            return true
          }
+         LOGGER.fine {"   Error code $errno returned from pingChannel.read()"}
+         return false
       }
 
-      return cc > 0
+      if (LOGGER.level == Level.FINEST) LOGGER.finest(dumpBuffer("Ping response", socketBuffer))
+
+      val seq: Short
+      val waitingTargets: WaitingTargetCollection
+
+      if (isIPv4) {
+         val headerLen= if (isBSD) (recvIp.ip_vhl.longValue() and 0x0f) shl 2 else 0
+         icmp.useMemory(socketBufferPointer.slice(headerLen))
+         val icmpType = icmp.icmp_type.get()
+         if (icmpType != ICMP_ECHOREPLY) {
+            LOGGER.fine("   ^ Opps, not our response.")
+            return true
+         }
+         seq = ntohs(icmp.icmp_hun.ih_idseq.icd_seq.shortValue())
+         waitingTargets = waitingTargets4
+      } else {
+         icmp6.useMemory(socketBufferPointer)
+         val icmpType = icmp6.icmp6_type.get()
+         if (icmpType != ICMPV6_ECHO_REPLY) {
+            LOGGER.fine("   ^ Opps, not our response.")
+            return true
+         }
+         seq = ntohs(icmp6.icmp6_dataun.icmp6_un_data32[0].shortValue())
+         waitingTargets = waitingTargets6
+      }
+
+      waitingTargets.remove(seq)
+         ?.let { pingTarget ->
+            val now = nanoTime()
+            val tripTimeSec = (now - pingTarget.timestampNs) / 1_000_000_000.0
+            try {
+               responseHandler.onResponse(pingTarget, tripTimeSec, cc, seq.toInt())
+            } catch(_: Exception) {}
+         }
+
+      return true
    }
 
    private fun wakeup() = libc.write(pipefd[1], ByteArray(1), 1)
