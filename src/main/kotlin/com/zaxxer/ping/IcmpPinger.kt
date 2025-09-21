@@ -136,6 +136,11 @@ enum class FailureReason {
     * Unable to send ICMP ping.
     */
    UnableToSendIcmpPing,
+   /**
+    * Triggered when [IcmpPinger.stopSelector] gets called or when `libc.poll` returns an error
+    * and [IcmpPinger.runSelector] ends.
+    */
+   SelectorStopped,
    ;
 
    override fun toString(): String =
@@ -143,6 +148,7 @@ enum class FailureReason {
          TimedOut -> "Ping timed out"
          UnableToCreateSocket -> "Unable to create socket"
          UnableToSendIcmpPing -> "Unable to send ICMP ping"
+         SelectorStopped -> "Selector stopped"
       }
 }
 
@@ -207,7 +213,10 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
    fun ping(pingTarget: PingTarget) {
       val pendingPings = if (pingTarget.isIPv4()) pending4Pings else pending6Pings
       pendingPings.offer(PingTarget(pingTarget))
-      if (awoken.compareAndSet(false, true)) {
+      // Declining must happen after insertion to avoid a race condition
+      if (!running.get()) {
+         declinePings(pendingPings, FailureReason.SelectorStopped)
+      } else if (awoken.compareAndSet(false, true)) {
          wakeup()
       }
    }
@@ -301,6 +310,12 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
             pipefd[0] = -1
             pipefd[1] = -1
          }
+
+         declinePings(pending4Pings, FailureReason.SelectorStopped)
+         declinePings(pending6Pings, FailureReason.SelectorStopped)
+
+         declinePings(waitingTargets4, FailureReason.SelectorStopped)
+         declinePings(waitingTargets6, FailureReason.SelectorStopped)
       }
    }
 
@@ -350,6 +365,14 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
          val pendingPing = pendingPings.poll() ?: return
          try {
             responseHandler.onFailure(pendingPing, failureReason)
+         } catch (_:Exception) {}
+      }
+   }
+
+   private fun declinePings(waitingTargets: WaitingTargetCollection, failureReason: FailureReason) {
+      while(waitingTargets.isNotEmpty()) {
+         try {
+            responseHandler.onFailure(waitingTargets.take(), failureReason)
          } catch (_:Exception) {}
       }
    }
