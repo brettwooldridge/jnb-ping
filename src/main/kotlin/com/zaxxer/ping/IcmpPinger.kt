@@ -265,8 +265,8 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
                if (fd4.fd > 0 && fd4.revents and POLLIN_OR_PRI != 0) processReceives(fd4.fd, true)
                if (fd6.fd > 0 && fd6.revents and POLLIN_OR_PRI != 0) processReceives(fd6.fd, false)
 
-               if (fd4.revents and POLLOUT != 0) processSends(pending4Pings, waitingTargets4, fd4, true)
-               if (fd6.revents and POLLOUT != 0) processSends(pending6Pings, waitingTargets6, fd6, false)
+               if (wokeUp || fd4.revents and POLLOUT != 0) processSends(pending4Pings, waitingTargets4, fd4, true)
+               if (wokeUp || fd6.revents and POLLOUT != 0) processSends(pending6Pings, waitingTargets6, fd6, false)
 
                fdPipe.revents = 0
                fd4.revents = 0
