@@ -261,10 +261,10 @@ class PingTest {
       selectorThread.isDaemon = false
       selectorThread.start()
 
+      MILLISECONDS.sleep(100L)
+
       // Ping a non existing ip address
       pinger.ping(PingTarget(InetAddress.getByName("240.0.0.0")))
-
-      MILLISECONDS.sleep(100L)
 
       while (pinger.isPendingWork()) Thread.sleep(500L)
 
