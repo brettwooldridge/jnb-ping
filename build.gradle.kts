@@ -113,7 +113,7 @@ if (ossrhUserName == null || ossrhPassword == null) {
 		}
 		maven {
 			name = "repository"
-			url = uri("https://oss.sonatype.org/service/local/staging/deploy/maven2/")
+			url = uri("https://ossrh-staging-api.central.sonatype.com")
 			credentials {
 				username = ossrhUserName
 				password = ossrhPassword
