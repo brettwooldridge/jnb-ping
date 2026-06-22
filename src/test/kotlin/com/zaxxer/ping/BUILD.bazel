@@ -1,0 +1,28 @@
+load("@contrib_rules_jvm//java:defs.bzl", "java_junit5_test")
+load("@rules_kotlin//kotlin:jvm.bzl", "kt_jvm_library")
+
+kt_jvm_library(
+    name = "ping-test-lib",
+    testonly = True,
+    srcs = glob(["*.kt"]),
+    associates = ["//src/main/kotlin/com/zaxxer/ping"],
+    deps = [
+        "@maven//:org_junit_jupiter_junit_jupiter_api",
+    ],
+)
+
+java_junit5_test(
+    name = "ping-tests",
+    data = ["//src/test/resources:logging.properties"],
+    jvm_flags = ["-Djava.util.logging.config.file=$(rootpath //src/test/resources:logging.properties)"],
+    local = True,
+    tags = ["requires-network"],
+    test_class = "com.zaxxer.ping.PingTest",
+    timeout = "long",
+    runtime_deps = [
+        ":ping-test-lib",
+        "@maven//:org_junit_jupiter_junit_jupiter_engine",
+        "@maven//:org_junit_platform_junit_platform_launcher",
+        "@maven//:org_junit_platform_junit_platform_reporting",
+    ],
+)

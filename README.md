@@ -35,6 +35,20 @@ while (pinger.isPendingWork()) Thread.sleep(500)
 pinger.stopSelector()
 ```
 
+## Building
+
+Requires [Bazel](https://bazel.build/) 8.7.x and JDK 21+.
+
+```bash
+bazel build //:jnb-ping                                   # compile library
+bazel test //src/test/kotlin/com/zaxxer/ping:ping-tests   # run tests (JUnit 5)
+bazel build //:dist_maven_artifacts                       # jar, sources, javadoc, pom for publishing
+```
+
+Tests require ICMP socket permissions. On Linux, set `sysctl net.ipv4.ping_group_range` (and `net.ipv6.ping_group_range` for IPv6). macOS works without special config. Some tests ping external hosts so network access is required.
+
+## Linux Kernel Support
+
 The minimum supported Linux kernel version is v4.19.10. It *may* work with older kernels (some reported working on v3.13.), depending on the kernel configuration parameters, but only v4.19.10+ has been tested. I am fairly certain that IPv6 is not supported (by this library) on any Linux kernel version less than v4.19.
 
 [Build Status]:https://circleci.com/gh/brettwooldridge/jnb-ping

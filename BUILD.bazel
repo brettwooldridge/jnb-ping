@@ -1,0 +1,122 @@
+load("@jnb_ping_version//:version.bzl", "JNB_PING_VERSION")
+load("@rules_jvm_external//:defs.bzl", "java_export")
+load("@rules_kotlin//kotlin:core.bzl", "define_kt_toolchain", "kt_kotlinc_options")
+load("@rules_kotlin//kotlin:jvm.bzl", "kt_jvm_library")
+
+exports_files(["VERSION"])
+
+kt_kotlinc_options(
+    name = "kotlinc_options",
+    x_no_call_assertions = True,
+    x_no_param_assertions = True,
+    x_no_receiver_assertions = True,
+)
+
+define_kt_toolchain(
+    name = "kotlin_toolchain",
+    api_version = "2.1",
+    experimental_use_abi_jars = True,
+    jvm_target = "21",
+    kotlinc_options = "//:kotlinc_options",
+    language_version = "2.1",
+)
+
+kt_jvm_library(
+    name = "jnb-ping",
+    visibility = ["//visibility:public"],
+    exports = [
+        "//src/main/kotlin/com/zaxxer/ping",
+    ],
+)
+
+java_export(
+    name = "jnb_ping_maven",
+    classifier_artifacts = {
+        "javadoc": ":jnb_ping_dokka_javadoc",
+    },
+    deploy_env = [
+        "@maven//:org_jetbrains_kotlin_kotlin_stdlib",
+        "@rules_kotlin//kotlin/compiler:kotlin-stdlib",
+    ],
+    manifest_entries = {
+        "Automatic-Module-Name": "com.zaxxer.ping",
+        "Implementation-Title": "jnb-ping",
+        "Implementation-Vendor": "Brett Wooldridge",
+        "Implementation-Version": JNB_PING_VERSION,
+        "Specification-Title": "jnb-ping",
+        "Specification-Vendor": "Brett Wooldridge",
+        "Specification-Version": JNB_PING_VERSION,
+    },
+    maven_coordinates = "com.zaxxer:jnb-ping:%s" % JNB_PING_VERSION,
+    pom_template = "pom-template.xml",
+    tags = ["no-javadocs"],
+    visibility = ["//visibility:public"],
+    exports = [
+        ":jnb-ping",
+        "@maven//:org_jetbrains_kotlin_kotlin_stdlib",
+    ],
+)
+
+genrule(
+    name = "jnb_ping_dokka_javadoc",
+    srcs = [
+        "//src/main/kotlin/com/zaxxer/ping:srcs",
+    ],
+    outs = ["jnb_ping_maven-javadoc.jar"],
+    cmd = """
+set -euo pipefail
+OUT="$$(pwd)/$@"
+TMP="$(@D)/jnb-ping-dokka"
+DOCS="$$TMP/html"
+rm -rf "$$TMP"
+mkdir -p "$$DOCS"
+java -jar $(location @maven//:org_jetbrains_dokka_dokka_cli) \
+  -moduleName jnb-ping \
+  -moduleVersion {version} \
+  -pluginsClasspath "$(location @maven//:org_jetbrains_dokka_dokka_base);$(location @maven//:org_jetbrains_dokka_analysis_kotlin_descriptors);$(location @maven//:org_jetbrains_kotlinx_kotlinx_html_jvm);$(location @maven//:org_freemarker_freemarker)" \
+  -sourceSet "-src $$(printf '%s;' $(SRCS) | sed 's/;$$//') -analysisPlatform jvm -documentedVisibilities PUBLIC;PROTECTED -noStdlibLink -noJdkLink" \
+  -outputDir "$$DOCS"
+(cd "$$DOCS" && jar cf "$$OUT" .)
+""".format(version = JNB_PING_VERSION),
+    tools = [
+        "@maven//:org_freemarker_freemarker",
+        "@maven//:org_jetbrains_dokka_analysis_kotlin_descriptors",
+        "@maven//:org_jetbrains_dokka_dokka_base",
+        "@maven//:org_jetbrains_dokka_dokka_cli",
+        "@maven//:org_jetbrains_kotlin_kotlin_stdlib",
+        "@maven//:org_jetbrains_kotlinx_kotlinx_html_jvm",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "maven_artifacts",
+    srcs = [
+        ":dist_maven_artifacts",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+genrule(
+    name = "dist_maven_artifacts",
+    srcs = [
+        ":jnb_ping_maven",
+        ":jnb_ping_dokka_javadoc",
+        ":jnb_ping_maven-pom",
+        ":jnb_ping_maven-maven-source",
+    ],
+    outs = [
+        "dist/jnb-ping-%s-javadoc.jar" % JNB_PING_VERSION,
+        "dist/jnb-ping-%s-sources.jar" % JNB_PING_VERSION,
+        "dist/jnb-ping-%s.jar" % JNB_PING_VERSION,
+        "dist/jnb-ping-%s.pom" % JNB_PING_VERSION,
+    ],
+    cmd = """
+set -euo pipefail
+cp $(location :jnb_ping_dokka_javadoc) "$(location dist/jnb-ping-{version}-javadoc.jar)"
+cp $(location :jnb_ping_maven-maven-source) "$(location dist/jnb-ping-{version}-sources.jar)"
+cp $(location :jnb_ping_maven) "$(location dist/jnb-ping-{version}.jar)"
+cp $(location :jnb_ping_maven-pom) "$(location dist/jnb-ping-{version}.pom)"
+""".format(version = JNB_PING_VERSION),
+    visibility = ["//visibility:public"],
+)

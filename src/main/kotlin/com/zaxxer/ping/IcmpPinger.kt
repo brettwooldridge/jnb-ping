@@ -86,6 +86,7 @@ class PingTarget : Comparable<PingTarget> {
          is Inet6Address ->
             if (isBSD) BSDSockAddr6(inetAddress)
             else LinuxSockAddr6(inetAddress)
+         else -> throw IllegalArgumentException("Unsupported address type: ${inetAddress.javaClass.name}")
       }
    }
 
@@ -122,7 +123,7 @@ enum class FailureReason {
     */
    TimedOut,
    /**
-    * Unable to create IPv4 or IPv6 socket. Could mean that user the application is running with doesn't have enough
+    * Unable to create IPv4 or IPv6 socket. Could mean that the user the application is running with doesn't have enough
     * privileges, or a specific IP family might be disabled.
     * If this is Linux, you might need to set `sysctl net.ipv4.ping_group_range` or `sysctl net.ipv6.ping_group_range`.
     */
@@ -149,7 +150,7 @@ enum class FailureReason {
 
 private val ID_SEQUENCE = AtomicInteger(0xCAFE)
 
-private val SEQUENCE_SEQUENCE = AtomicInteger(0xBABE)
+private const val SEQUENCE_INIT = 0xBABE
 
 private val LOGGER = Logger.getLogger(IcmpPinger::class.java.name)
 
@@ -181,8 +182,11 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
 
    private val awoken = AtomicBoolean(false)
    private val pipefd = IntArray(2) { -1 }
+   private val wakeupWriteBuf = ByteArray(1)
+   private val wakeupReadBuf = ByteArray(1)
 
    private var running = AtomicBoolean(false)
+   private var sequenceCounter = SEQUENCE_INIT
 
    init {
       val tmpBuffer = prebuiltBuffer.duplicate()
@@ -353,14 +357,14 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
 
    private fun processReceives(fd: FD, isIPv4: Boolean) {
       do {
-         val more = recvIcmp(fd, isIPv4) // read and lookup actor id in map
+         val more = recvIcmp(fd, isIPv4) // read and look up actor id in map
       } while (more)
    }
 
    private fun processTimeouts(targets: WaitingTargetCollection) : Int {
+      val nowNs = nanoTime()
       while (true) {
          val timeoutNs = targets.peekTimeoutQueue() ?: return Int.MAX_VALUE
-         val nowNs = nanoTime()
          val remainingMs = NANOSECONDS.toMillis(timeoutNs - nowNs).toInt() // NOTE: would roll over if timeout is longer than 35 minutes
          if (remainingMs > 0) {
             return minOf(remainingMs, Int.MAX_VALUE)
@@ -391,9 +395,9 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
    }
 
    private fun sendIcmp(pingTarget: PingTarget, fd: FD) : Boolean {
-      prebuiltBufferPointer.transferTo(0, socketBufferPointer, 0, BUFFER_SIZE)
+      prebuiltBufferPointer.transferTo(0, socketBufferPointer, 0, (SIZEOF_STRUCT_IP + SEND_PACKET_SIZE).toLong())
 
-      pingTarget.sequence = (SEQUENCE_SEQUENCE.getAndIncrement() and 0xffff).toShort()
+      pingTarget.sequence = (sequenceCounter++ and 0xffff).toShort()
 
       if (pingTarget.isIPv4()) {
          icmp.useMemory(outpacketPointer)
@@ -402,8 +406,8 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
          icmp.icmp_type.set(ICMP_ECHO)
          icmp.icmp_code.set(0)
          icmp.icmp_cksum.set(0)
-         // In BSD we are responsible for the entire payload, including checksum.  Linux mucks with the payload (replacing
-         // the identity field, and therefore recalculates the checksum (so don't waste our time doing it here).
+         // In BSD, we are responsible for the entire payload, including checksum.  Linux mucks with the payload (replacing
+         // the identity field, and therefore recalculates the checksum, so don't waste our time doing it here).
          if (isBSD) {
             val cksum = icmpCksum(outpacketPointer, SEND_PACKET_SIZE)
             icmp.icmp_cksum.set(htons(cksum.toShort()))
@@ -440,9 +444,8 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
       val cc = posix.recvmsg(fd, msgHdr, 0)
       if (cc < 0) {
          val errno = posix.errno()
-         if (errno == Errno.EINTR.intValue() && errno == Errno.EAGAIN.intValue()) {
-            return true
-         }
+         if (errno == Errno.EAGAIN.intValue()) return false
+         if (errno == Errno.EINTR.intValue()) return true
          LOGGER.fine {"   Error code $errno returned from pingChannel.read()"}
          return false
       }
@@ -453,8 +456,12 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
       val waitingTargets: WaitingTargetCollection
 
       if (isIPv4) {
-         val headerLen= if (isBSD) (recvIp.ip_vhl.longValue() and 0x0f) shl 2 else 0
-         icmp.useMemory(socketBufferPointer.slice(headerLen))
+         if (isBSD) {
+            val headerLen = ((recvIp.ip_vhl.longValue() and 0x0f) shl 2).toInt()
+            icmp.useMemory(if (headerLen == SIZEOF_STRUCT_IP) outpacketPointer else socketBufferPointer.slice(headerLen.toLong()))
+         } else {
+            icmp.useMemory(socketBufferPointer)
+         }
          val icmpType = icmp.icmp_type.get()
          if (icmpType != ICMP_ECHOREPLY) {
             LOGGER.fine("   ^ Opps, not our response.")
@@ -488,13 +495,13 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
    private fun wakeup() {
       synchronized(pipefd) {
          if (pipefd[1] > 0) {
-            libc.write(pipefd[1], ByteArray(1), 1)
+            libc.write(pipefd[1], wakeupWriteBuf, 1)
          }
       }
    }
 
    private fun wakeupReceived() {
-      while (libc.read(pipefd[0], ByteArray(1), 1) > 0) {
+      while (libc.read(pipefd[0], wakeupReadBuf, 1) > 0) {
          // drain the wakeup pipe
       }
    }

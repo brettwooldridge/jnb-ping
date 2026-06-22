@@ -1,0 +1,10 @@
+startup --host_jvm_args=-Xms768m --host_jvm_args=-Xmx1536m --host_jvm_args=-Xss256k
+
+common --@rules_jvm_external//settings:stamp_manifest=false
+
+test --verbose_failures
+test --test_output=errors
+build --java_language_version=21
+build --java_runtime_version=remotejdk_21
+build --tool_java_language_version=21
+build --tool_java_runtime_version=remotejdk_21

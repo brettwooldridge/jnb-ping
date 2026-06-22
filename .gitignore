@@ -1,6 +1,2 @@
 .idea
-target
-.gradle
-.kotlin
-build
-out
+bazel-*
