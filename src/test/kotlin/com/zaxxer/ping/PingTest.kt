@@ -115,8 +115,8 @@ class PingTest {
       selectorThread.start()
 
       val pingTargets = arrayOf(
-         PingTarget(InetAddress.getByName("8.8.8.8")),
-         PingTarget(InetAddress.getByName("youtube.com"))
+         PingTarget(InetAddress.getByName(System.getenv("PING_TEST_IP") ?: "8.8.8.8")),
+         PingTarget(InetAddress.getByName(System.getenv("PING_TEST_HOST") ?: "youtube.com"))
       )
 
       for (i in 0..(10 * pingTargets.size)) {

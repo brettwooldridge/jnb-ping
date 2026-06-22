@@ -6,6 +6,8 @@ jobs:
     resource_class: brettwooldridge/ubuntu
     environment:
       JAVA_HOME: /usr/lib/jvm/java-21-openjdk-amd64
+      PING_TEST_IP: 10.0.40.16
+      PING_TEST_HOST: jenkins
 
     steps:
       # Commands run in a Linux virtual machine environment
