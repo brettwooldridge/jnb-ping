@@ -16,4 +16,4 @@ jobs:
           name: Build with Gradle
           command: |
             cd jnb-ping
-            ./gradlew clean build
+            bazel test //src/test/kotlin/com/zaxxer/ping:ping-tests
