@@ -9,6 +9,8 @@ A non-blocking ICMP library for Java, using JNA to access native APIs, supportin
 
 Currently, only Linux and MacOS X are supported.
 
+Version 3.x supports Java 11+, but starting with 4.x the library requires Java 21+.
+
 Example (Kotlin):
 ```kotlin
 class PingHandler : PingResponseHandler {
