@@ -3,7 +3,6 @@ module(name = "jnb-ping")
 bazel_dep(name = "rules_java", version = "9.3.0")
 bazel_dep(name = "rules_kotlin", version = "2.3.20")
 bazel_dep(name = "rules_jvm_external", version = "7.0")
-bazel_dep(name = "contrib_rules_jvm", version = "0.33.0")
 
 register_toolchains("//:kotlin_toolchain")
 
@@ -18,6 +17,7 @@ maven.install(
         # Test
         "org.junit.jupiter:junit-jupiter-api:5.12.1",
         "org.junit.jupiter:junit-jupiter-engine:5.12.1",
+        "org.junit.platform:junit-platform-console:1.12.1",
         "org.junit.platform:junit-platform-launcher:1.12.1",
         "org.junit.platform:junit-platform-reporting:1.12.1",
         # Dokka (javadoc generation)
