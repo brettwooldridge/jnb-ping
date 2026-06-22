@@ -4,16 +4,18 @@ jobs:
   build:
     machine: true # executor type
     resource_class: brettwooldridge/ubuntu
+    environment:
+      JAVA_HOME: /usr/lib/jvm/java-21-openjdk-amd64
 
     steps:
       # Commands run in a Linux virtual machine environment
       - run:
-          name: Clone repository using HTTPS
+          name: Clone Repository via HTTPS Proxy
           command: |
-            git clone https://github.com/brettwooldridge/jnb-ping.git
-            cd jnb-ping
+            git clone https://${GITHUB_TOKEN}@github.com/brettwooldridge/jnb-ping.git .
+            git checkout ${CIRCLE_SHA1}
       - run:
-          name: Build with Gradle
+          name: Build and test with Bazel
           command: |
-            cd jnb-ping
+            export PATH=$JAVA_HOME/bin:$PATH
             bazel test //src/test/kotlin/com/zaxxer/ping:ping-tests
