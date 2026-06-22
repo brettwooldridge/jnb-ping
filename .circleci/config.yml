@@ -18,4 +18,4 @@ jobs:
           name: Build and test with Bazel
           command: |
             export PATH=$JAVA_HOME/bin:$PATH
-            bazel test //src/test/kotlin/com/zaxxer/ping:ping-tests
+            bazelisk test //src/test/kotlin/com/zaxxer/ping:ping-tests
