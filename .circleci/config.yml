@@ -5,7 +5,7 @@ jobs:
     machine: true # executor type
     resource_class: brettwooldridge/ubuntu
     environment:
-      JAVA_HOME: /usr/lib/jvm/java-21-openjdk-amd64
+      JAVA_HOME: /usr/lib/jvm/java-25-openjdk-amd64
       PING_TEST_IP: 10.0.40.16
       PING_TEST_HOST: jenkins
 
@@ -22,3 +22,4 @@ jobs:
             export PATH=$JAVA_HOME/bin:$PATH
             bazel clean --expunge
             bazel test //src/test/kotlin/com/zaxxer/ping:ping-tests
+
