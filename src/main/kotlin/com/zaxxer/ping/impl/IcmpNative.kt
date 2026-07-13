@@ -18,122 +18,39 @@
  * Created by Brett Wooldridge on 2017/10/03.
  */
 
-@file:Suppress("PropertyName", "unused", "ProtectedInFinal", "FunctionName", "ClassName", "SpellCheckingInspection")
+@file:Suppress("PropertyName", "unused", "FunctionName", "ClassName", "SpellCheckingInspection")
 
 package com.zaxxer.ping.impl
 
-import com.zaxxer.ping.impl.NativeStatic.Companion.isBSD
-import com.zaxxer.ping.impl.NativeStatic.Companion.runtime
-import jnr.constants.platform.AddressFamily.AF_INET
-import jnr.constants.platform.AddressFamily.AF_INET6
-import jnr.ffi.*
-import jnr.ffi.annotations.In
-import jnr.ffi.annotations.Out
-import jnr.ffi.annotations.Variadic
-import jnr.ffi.byref.IntByReference
-import jnr.ffi.types.size_t
-import jnr.ffi.types.socklen_t
-import jnr.ffi.types.ssize_t
-import jnr.posix.POSIX
-import jnr.posix.POSIXFactory
+import java.lang.foreign.Arena
+import java.lang.foreign.FunctionDescriptor
+import java.lang.foreign.Linker
+import java.lang.foreign.MemoryLayout
+import java.lang.foreign.MemoryLayout.PathElement.groupElement
+import java.lang.foreign.MemoryLayout.PathElement.sequenceElement
+import java.lang.foreign.MemorySegment
+import java.lang.foreign.StructLayout
+import java.lang.foreign.SymbolLookup
+import java.lang.foreign.ValueLayout.ADDRESS
+import java.lang.foreign.ValueLayout.JAVA_BYTE
+import java.lang.foreign.ValueLayout.JAVA_INT
+import java.lang.foreign.ValueLayout.JAVA_LONG
+import java.lang.foreign.ValueLayout.JAVA_SHORT
+import java.lang.invoke.MethodHandle
+import java.lang.invoke.VarHandle
 import java.net.Inet4Address
 import java.net.Inet6Address
-import java.nio.ByteBuffer
 
-internal class NativeStatic {
-   companion object {
-      @JvmStatic val runtime: Runtime = Runtime.getSystemRuntime()!!
-      @JvmStatic val platform:Platform = Platform.getNativePlatform()
-      @JvmStatic val isBSD = platform.isBSD
-      @JvmStatic val posix:POSIX = POSIXFactory.getNativePOSIX()
-      @JvmStatic val libc:LibC = LibraryLoader.create(LibC::class.java).load(platform.standardCLibraryName)
-   }
-}
-
-open class SockAddr:Struct(runtime)
-open class SockAddr6:SockAddr()
-
-class BSDSockAddr4(address:Inet4Address) : SockAddr() {
-   @field:JvmField val sin_len = Unsigned8()
-   @field:JvmField val sin_family = Unsigned8()
-   @field:JvmField val sin_port = Unsigned16()
-   @field:JvmField val sin_addr = Unsigned32()
-   @field:JvmField protected val sin_zero = Padding(NativeType.SCHAR, 8)
-
-   init {
-      val bytes = address.address
-      val inAddr:Int = (bytes[3].toInt() and 0xff shl 24) or (bytes[2].toInt() and 0xff shl 16) or (bytes[1].toInt() and 0xff shl 8) or (bytes[0].toInt() and 0xff)
-      sin_addr.set(inAddr)
-      sin_family.set(PF_INET)
-   }
-}
-
-class BSDSockAddr6(address: Inet6Address):SockAddr6() {
-   @field:JvmField val sin6_len = Unsigned8()
-   @field:JvmField val sin6_family = Unsigned8()
-   @field:JvmField val sin6_port = Unsigned16()
-   @field:JvmField val sin6_flowinfo = Unsigned32()
-   @field:JvmField val sin6_addr:Array<out Unsigned8> = Array(16) { Unsigned8() }
-   @field:JvmField val sin6_scope_id = Unsigned32()
-
-   init {
-      sin6_family.set(PF_INET6)
-      val bytes = address.address
-      for (index in 0..15) {
-         val value = bytes[index].toInt() and 0xff
-         sin6_addr[index].set(value)
-      }
-
-      if (address.isLinkLocalAddress) {
-         sin6_scope_id.set(address.scopeId)
-      }
-   }
-}
-
-class LinuxSockAddr4(address:Inet4Address) : SockAddr() {
-   @field:JvmField val sin_family = Unsigned16()
-   @field:JvmField val sin_port = Unsigned16()
-   @field:JvmField val sin_addr = Unsigned32()
-   @field:JvmField protected val sin_data = Padding(NativeType.SCHAR, 8)
-
-   init {
-      val bytes = address.address
-      val inAddr:Int = (bytes[3].toInt() and 0xff shl 24) or (bytes[2].toInt() and 0xff shl 16) or (bytes[1].toInt() and 0xff shl 8) or (bytes[0].toInt() and 0xff)
-      sin_addr.set(inAddr)
-      sin_family.set(PF_INET)
-   }
-}
-
-class LinuxSockAddr6(address:Inet6Address):SockAddr6() {
-   @field:JvmField val sin6_family = Unsigned16()
-   @field:JvmField val sin6_port = Unsigned16()
-   @field:JvmField val sin6_flowinfo = Unsigned32()
-   @field:JvmField val sin6_addr:Array<out Unsigned8> = Array(16) { Unsigned8() }
-   @field:JvmField val sin6_scope_id = Unsigned32()
-
-   init {
-      sin6_family.set(PF_INET6)
-      val bytes = address.address
-      for (index in 0..15) {
-         val value = bytes[index].toInt() and 0xff
-         sin6_addr[index].set(value)
-      }
-
-      if (address.isLinkLocalAddress) {
-         sin6_scope_id.set(address.scopeId)
-      }
-   }
-
-}
+val isBSD = System.getProperty("os.name").lowercase().let { it.contains("mac") || it.contains("bsd") }
 
 const val ICMP_MINLEN = 8
 const val IP_MAXPACKET = 65535
 const val DEFAULT_DATALEN = 56
 const val SEND_PACKET_SIZE = ICMP_MINLEN + DEFAULT_DATALEN
 
-val PF_INET = AF_INET.intValue()
-val PF_INET6 = AF_INET6.intValue()
-val SOCK_DGRAM = jnr.constants.platform.Sock.SOCK_DGRAM.intValue()
+const val PF_INET = 2
+val PF_INET6 = if (isBSD) 30 else 10
+const val SOCK_DGRAM = 2
 
 const val IPPROTO_ICMP = 1
 const val IPPROTO_ICMPV6 = 58
@@ -147,77 +64,138 @@ val SOL_SOCKET = if (isBSD) 0xffff else 1
 
 val SO_TIMESTAMP = if (isBSD) 0x0400 else 29
 val SO_RCVBUF = if (isBSD) 0x1002 else 8
-val SO_REUSEPORT = if (isBSD) 0x0200 else jnr.constants.platform.SocketOption.SO_REUSEADDR.intValue()
+val SO_REUSEPORT = if (isBSD) 0x0200 else 2
 val SCM_TIMESTAMP = if (isBSD) 0x02 else SO_TIMESTAMP
 
-val F_GETFL = jnr.constants.platform.Fcntl.F_GETFL.intValue()
-val F_SETFL = jnr.constants.platform.Fcntl.F_SETFL.intValue()
-val O_NONBLOCK = jnr.constants.platform.OpenFlags.O_NONBLOCK.intValue()
+const val F_GETFL = 3
+const val F_SETFL = 4
+val O_NONBLOCK = if (isBSD) 0x0004 else 0x0800
 
-val SIZEOF_STRUCT_IP = Struct.size(Ip())
-val SIZEOF_STRUCT_POLL_FD = Struct.size(PollFd())
+const val EINTR = 4
+val EAGAIN = if (isBSD) 35 else 11
 
-interface LibC {
-   fun socket(domain:Int, type:Int, protocol:Int) : Int
+/*****************************************************************************
+ *                            struct sockaddr
+ *
+ * BSD and Linux differ in the layout of the leading bytes: BSD has a one
+ * byte sa_len followed by a one byte sa_family, Linux has a two byte
+ * sa_family.
+ */
 
-   fun setsockopt(fd:Int, level:Int, option:Int, @In value:IntByReference, @socklen_t len:Int) : Int
+// struct sockaddr_in (BSD)
+val BSD_SOCKADDR_IN_LAYOUT: StructLayout = MemoryLayout.structLayout(
+   JAVA_BYTE.withName("sin_len"),
+   JAVA_BYTE.withName("sin_family"),
+   JAVA_SHORT.withName("sin_port"),
+   JAVA_INT.withName("sin_addr"),
+   MemoryLayout.sequenceLayout(8, JAVA_BYTE).withName("sin_zero")
+).withName("sockaddr_in")
 
-   @Variadic(fixedCount = 2)
-   fun fcntl(fd:Int, cmd:Int, data:Long) : Int
+// struct sockaddr_in (Linux)
+val LINUX_SOCKADDR_IN_LAYOUT: StructLayout = MemoryLayout.structLayout(
+   JAVA_SHORT.withName("sin_family"),
+   JAVA_SHORT.withName("sin_port"),
+   JAVA_INT.withName("sin_addr"),
+   MemoryLayout.sequenceLayout(8, JAVA_BYTE).withName("sin_zero")
+).withName("sockaddr_in")
 
-   fun pipe(@Out fds:IntArray) : Int
+// struct sockaddr_in6 (BSD)
+val BSD_SOCKADDR_IN6_LAYOUT: StructLayout = MemoryLayout.structLayout(
+   JAVA_BYTE.withName("sin6_len"),
+   JAVA_BYTE.withName("sin6_family"),
+   JAVA_SHORT.withName("sin6_port"),
+   JAVA_INT.withName("sin6_flowinfo"),
+   MemoryLayout.sequenceLayout(16, JAVA_BYTE).withName("sin6_addr"),
+   JAVA_INT.withName("sin6_scope_id")
+).withName("sockaddr_in6")
 
-   fun poll(fds:Pointer, @In nfds:Int, @In timeval:Int) : Int
+// struct sockaddr_in6 (Linux)
+val LINUX_SOCKADDR_IN6_LAYOUT: StructLayout = MemoryLayout.structLayout(
+   JAVA_SHORT.withName("sin6_family"),
+   JAVA_SHORT.withName("sin6_port"),
+   JAVA_INT.withName("sin6_flowinfo"),
+   MemoryLayout.sequenceLayout(16, JAVA_BYTE).withName("sin6_addr"),
+   JAVA_INT.withName("sin6_scope_id")
+).withName("sockaddr_in6")
 
-   fun inet_pton(af:Int, cp:String, buf:Pointer) : Int
+private const val SIN6_ADDR_OFFSET = 8L
+private const val SIN6_SCOPE_ID_OFFSET = 24L
 
-   fun inet_network (@In cp:String) : Pointer
-
-   fun close(fd:Int) : Int
-
-   @ssize_t fun sendto (fd:Int, @In buf:Pointer, @size_t len:Int, flags:Int, addr:SockAddr, @size_t addrLen:Int) : Int
-
-   @ssize_t fun recvfrom(fd:Int, @Out buf:ByteBuffer, @size_t len:Int, flags:Int, addr:SockAddr, addrLen:Int) : Int
-
-   @ssize_t fun read(fd:Int, @Out data:ByteArray, @size_t size:Long) : Int
-
-   @ssize_t fun write(fd:Int, @In data:ByteArray, @size_t size:Long) : Int
+open class SockAddr internal constructor(@JvmField internal val segment: MemorySegment) {
+   internal val size: Int
+      get() = segment.byteSize().toInt()
 }
 
-fun htons(s:Short) = java.lang.Short.reverseBytes(s)
+open class SockAddr6 internal constructor(segment: MemorySegment) : SockAddr(segment)
 
-fun ntohs(s:Short) = java.lang.Short.reverseBytes(s)
+// Each sockaddr gets its own automatic (GC-managed) arena so its native memory
+// lives exactly as long as the PingTarget that references it.
+private fun allocate(layout: StructLayout): MemorySegment = Arena.ofAuto().allocate(layout)
 
-fun htoni(i:Int) = Integer.reverseBytes(i)
-
-fun htonl(value:Long) : Long {
-   return ((value and 0xff000000) shr 24) or
-           ((value and 0x00ff0000) shr 8) or
-           ((value and 0x0000ff00) shl 8) or
-           ((value and 0x000000ff) shl 24)
+class BSDSockAddr4(address: Inet4Address) : SockAddr(allocate(BSD_SOCKADDR_IN_LAYOUT)) {
+   init {
+      segment.set(JAVA_BYTE, 1L, PF_INET.toByte())                      // sin_family
+      MemorySegment.copy(address.address, 0, segment, JAVA_BYTE, 4L, 4) // sin_addr
+   }
 }
+
+class BSDSockAddr6(address: Inet6Address) : SockAddr6(allocate(BSD_SOCKADDR_IN6_LAYOUT)) {
+   init {
+      segment.set(JAVA_BYTE, 1L, PF_INET6.toByte())                     // sin6_family
+      MemorySegment.copy(address.address, 0, segment, JAVA_BYTE, SIN6_ADDR_OFFSET, 16)
+      if (address.isLinkLocalAddress) {
+         segment.set(JAVA_INT, SIN6_SCOPE_ID_OFFSET, address.scopeId)
+      }
+   }
+}
+
+class LinuxSockAddr4(address: Inet4Address) : SockAddr(allocate(LINUX_SOCKADDR_IN_LAYOUT)) {
+   init {
+      segment.set(JAVA_SHORT, 0L, PF_INET.toShort())                    // sin_family
+      MemorySegment.copy(address.address, 0, segment, JAVA_BYTE, 4L, 4) // sin_addr
+   }
+}
+
+class LinuxSockAddr6(address: Inet6Address) : SockAddr6(allocate(LINUX_SOCKADDR_IN6_LAYOUT)) {
+   init {
+      segment.set(JAVA_SHORT, 0L, PF_INET6.toShort())                   // sin6_family
+      MemorySegment.copy(address.address, 0, segment, JAVA_BYTE, SIN6_ADDR_OFFSET, 16)
+      if (address.isLinkLocalAddress) {
+         segment.set(JAVA_INT, SIN6_SCOPE_ID_OFFSET, address.scopeId)
+      }
+   }
+}
+
+/*****************************************************************************
+ *                            struct pollfd
+ */
 
 // /* Data structure describing a polling request.  */
 // struct pollfd {
-class PollFd:Struct(runtime) {
-   // int fd;            /* File descriptor to poll. */
-   // short int events;  /* Types of events poller cares about.  */
-   // short int revents; /* Types of events that actually occurred.  */
-   val _fd = Signed32()
-   val _events = Signed16()
-   val _revents = Signed16()
+//    int fd;            /* File descriptor to poll. */
+//    short int events;  /* Types of events poller cares about.  */
+//    short int revents; /* Types of events that actually occurred.  */
+// };
+val POLLFD_LAYOUT: StructLayout = MemoryLayout.structLayout(
+   JAVA_INT.withName("fd"),
+   JAVA_SHORT.withName("events"),
+   JAVA_SHORT.withName("revents")
+).withName("pollfd")
 
+val SIZEOF_STRUCT_POLL_FD = POLLFD_LAYOUT.byteSize().toInt()
+
+class PollFd internal constructor(private val segment: MemorySegment) {
    var fd: Int
-      inline get() = htoni(_fd.get())
-      inline set(value) = _fd.set(htoni(value))
+      get() = segment.get(JAVA_INT, 0L)
+      set(value) = segment.set(JAVA_INT, 0L, value)
 
    var events: Int
-      inline get() = htons(_events.get()).toInt()
-      inline set(value) = _events.set(htons(value.toShort()))
+      get() = segment.get(JAVA_SHORT, 4L).toInt()
+      set(value) = segment.set(JAVA_SHORT, 4L, value.toShort())
 
    var revents: Int
-      inline get() = htons(_revents.get()).toInt()
-      inline set(value) = _revents.set(htons(value.toShort()))
+      get() = segment.get(JAVA_SHORT, 6L).toInt()
+      set(value) = segment.set(JAVA_SHORT, 6L, value.toShort())
 }
 
 // #define POLLIN		01              /* There is data to read.  */
@@ -236,175 +214,234 @@ const val POLLERR = 0x8
  *                              ICMP Definitions
  */
 
-
-
 // /*
 //  * Structure of an internet header, naked of options.
 //  */
 // struct ip {
-class Ip:Struct(runtime) {
-   // u_char	ip_vhl;			/* version << 4 | header length >> 2 */
-   val ip_vhl = Unsigned8()
-   // u_char	ip_tos;			/* type of service */
-   // u_short	ip_len;			/* total length */
-   // u_short	ip_id;			/* identification */
-   // u_short	ip_off;			/* fragment offset field */
-   val ip_tos = Unsigned8()
-   val ip_len = Unsigned16()
-   val ip_id = Unsigned16()
-   val ip_off = Unsigned16()
-   // u_char	ip_ttl;			/* time to live */
-   // u_char	ip_p;			/* protocol */
-   // u_short	ip_sum;			/* checksum */
-   val ip_ttl = Unsigned8()
-   val ip_p = Unsigned8()
-   val ip_sum = Unsigned16()
-   // struct in_addr  ip_src, ip_dst; /* source and dest address */
-   val ip_src = Unsigned32()
-   val ip_dst = Unsigned32()
-}
+//    u_char   ip_vhl;       /* version << 4 | header length >> 2 */
+//    u_char   ip_tos;       /* type of service */
+//    u_short  ip_len;       /* total length */
+//    u_short  ip_id;        /* identification */
+//    u_short  ip_off;       /* fragment offset field */
+//    u_char   ip_ttl;       /* time to live */
+//    u_char   ip_p;         /* protocol */
+//    u_short  ip_sum;       /* checksum */
+//    struct in_addr ip_src, ip_dst; /* source and dest address */
+// };
+val IP_LAYOUT: StructLayout = MemoryLayout.structLayout(
+   JAVA_BYTE.withName("ip_vhl"),
+   JAVA_BYTE.withName("ip_tos"),
+   JAVA_SHORT.withName("ip_len"),
+   JAVA_SHORT.withName("ip_id"),
+   JAVA_SHORT.withName("ip_off"),
+   JAVA_BYTE.withName("ip_ttl"),
+   JAVA_BYTE.withName("ip_p"),
+   JAVA_SHORT.withName("ip_sum"),
+   JAVA_INT.withName("ip_src"),
+   JAVA_INT.withName("ip_dst")
+).withName("ip")
 
-// union {
-class Hun:Union(runtime) {
-   // u_char ih_pptr;			   /* ICMP_PARAMPROB */
-   // struct in_addr ih_gwaddr;	/* ICMP_REDIRECT */
-   val ih_pptr = Unsigned8()
-   val ih_gwaddr = Unsigned32()
-   // struct ih_idseq {
-   //    n_short	icd_id;
-   //    n_short	icd_seq;
-   // } ih_idseq;
-   class IdSeq:Struct(runtime) {
-      val icd_id = Unsigned16()
-      val icd_seq = Unsigned16()
-   }
-   val ih_idseq:IdSeq = inner(IdSeq())
-   // int ih_void;
-   val ih_void = Unsigned32()
-   // /* ICMP_UNREACH_NEEDFRAG -- Path MTU Discovery (RFC1191) */
-   // struct ih_pmtu {
-   //    n_short ipm_void;
-   //    n_short ipm_nextmtu;
-   // } ih_pmtu;
-   class Pmtu:Struct(runtime) {
-      val ipm_void = Unsigned16()
-      val ipm_nextmtu = Unsigned16()
-   }
-   val ih_pmtu:Pmtu = inner(Pmtu())
-   // struct ih_rtradv {
-   //    u_char irt_num_addrs;
-   //    u_char irt_wpa;
-   //    u_int16_t irt_lifetime;
-   // } ih_rtradv;
-   class Rtradv:Struct(runtime) {
-      val irt_num_addrs = Unsigned8()
-      val irt_wpa = Unsigned8()
-      val irt_lifetime = Unsigned16()
-   }
-   val ih_rtradv:Rtradv = inner(Rtradv())
-}
-
-// union {
-class Dun:Union(runtime) {
-   // struct id_ts {
-   //    n_time its_otime;
-   //    n_time its_rtime;
-   //    n_time its_ttime;
-   // } id_ts;
-   class IdTs:Struct(runtime) {
-      var its_otime = Unsigned32()
-      var its_rtime = Unsigned32()
-      var its_ttime = Unsigned32()
-   }
-   val id_ts:IdTs = inner(IdTs())
-   // struct id_ip  {
-   //    struct ip idi_ip;
-   //    /* options and then 64 bits of data */
-   // } id_ip;
-   class IdIp:Struct(runtime) {
-      val idi_ip:Ip = inner(Ip())
-   }
-   val id_ip:IdIp = inner(IdIp())
-   // struct icmp_ra_addr id_radv;
-   val id_radv:RaAddr = inner(RaAddr())
-   // /*
-   //  * Internal of an ICMP Router Advertisement
-   //  */
-   // struct icmp_ra_addr {
-   //    u_int32_t ira_addr;
-   //    u_int32_t ira_preference;
-   // };
-   class RaAddr:Struct(runtime) {
-      val ira_addr = Unsigned32()
-      val ira_preference = Unsigned32()
-   }
-   // u_int32_t id_mask;
-   val id_mask = Unsigned32()
-   // char id_data[1];
-   val id_data = Unsigned8()
-}
+val SIZEOF_STRUCT_IP = IP_LAYOUT.byteSize().toInt()
 
 // /*
 //  * Structure of an icmp header.
 //  */
 // struct icmp {
-class Icmp:Struct(runtime) {
-   // u_char	icmp_type;		/* type of message, see below */
-   // u_char	icmp_code;		/* type sub code */
-   // u_short	icmpCksum;		/* ones complement cksum of struct */
-   val icmp_type = Unsigned8()
-   val icmp_code = Unsigned8()
-   val icmp_cksum = Unsigned16()
-   // union {
-   val icmp_hun:Hun = inner(Hun())
-   // } icmp_hun;
-   // union {
-   val icmp_dun:Dun = inner(Dun())
-   // } icmp_dun
+//    u_char  icmp_type;   /* type of message, see below */
+//    u_char  icmp_code;   /* type sub code */
+//    u_short icmp_cksum;  /* ones complement cksum of struct */
+//    union icmp_hun { ... };
+//    union icmp_dun { ... };
+// };
+val ICMP_LAYOUT: StructLayout = MemoryLayout.structLayout(
+   JAVA_BYTE.withName("icmp_type"),
+   JAVA_BYTE.withName("icmp_code"),
+   JAVA_SHORT.withName("icmp_cksum"),
+   MemoryLayout.unionLayout(
+      JAVA_BYTE.withName("ih_pptr"),                              // ICMP_PARAMPROB
+      JAVA_INT.withName("ih_gwaddr"),                             // ICMP_REDIRECT
+      MemoryLayout.structLayout(
+         JAVA_SHORT.withName("icd_id"),
+         JAVA_SHORT.withName("icd_seq")
+      ).withName("ih_idseq"),
+      JAVA_INT.withName("ih_void"),
+      // ICMP_UNREACH_NEEDFRAG -- Path MTU Discovery (RFC1191)
+      MemoryLayout.structLayout(
+         JAVA_SHORT.withName("ipm_void"),
+         JAVA_SHORT.withName("ipm_nextmtu")
+      ).withName("ih_pmtu"),
+      MemoryLayout.structLayout(
+         JAVA_BYTE.withName("irt_num_addrs"),
+         JAVA_BYTE.withName("irt_wpa"),
+         JAVA_SHORT.withName("irt_lifetime")
+      ).withName("ih_rtradv")
+   ).withName("icmp_hun"),
+   MemoryLayout.unionLayout(
+      MemoryLayout.structLayout(
+         JAVA_INT.withName("its_otime"),
+         JAVA_INT.withName("its_rtime"),
+         JAVA_INT.withName("its_ttime")
+      ).withName("id_ts"),
+      MemoryLayout.structLayout(
+         IP_LAYOUT.withName("idi_ip")
+         /* options and then 64 bits of data */
+      ).withName("id_ip"),
+      // Internal of an ICMP Router Advertisement
+      MemoryLayout.structLayout(
+         JAVA_INT.withName("ira_addr"),
+         JAVA_INT.withName("ira_preference")
+      ).withName("id_radv"),
+      JAVA_INT.withName("id_mask"),
+      JAVA_BYTE.withName("id_data")
+   ).withName("icmp_dun")
+).withName("icmp")
+
+// /**
+//  * Structure of an icmp6 header
+//  */
+// struct icmp6_hdr {
+//    u_int8_t  icmp6_type;  /* type of message, see below */
+//    u_int8_t  icmp6_code;  /* type sub code */
+//    u_int16_t icmp6_cksum; /* ones complement cksum of struct */
+//    union {
+//       u_int32_t icmp6_un_data32[1]; /* type-specific field */
+//       u_int16_t icmp6_un_data16[2]; /* type-specific field */
+//       u_int8_t  icmp6_un_data8[4];  /* type-specific field */
+//    } icmp6_dataun;
+// };
+val ICMP6_LAYOUT: StructLayout = MemoryLayout.structLayout(
+   JAVA_BYTE.withName("icmp6_type"),
+   JAVA_BYTE.withName("icmp6_code"),
+   JAVA_SHORT.withName("icmp6_cksum"),
+   MemoryLayout.unionLayout(
+      MemoryLayout.sequenceLayout(1, JAVA_INT).withName("icmp6_un_data32"),
+      MemoryLayout.sequenceLayout(2, JAVA_SHORT).withName("icmp6_un_data16"),
+      MemoryLayout.sequenceLayout(4, JAVA_BYTE).withName("icmp6_un_data8")
+   ).withName("icmp6_dataun")
+).withName("icmp6_hdr")
+
+// Offsets of the fields actually touched on the hot send/receive paths.
+val ICMP_TYPE_OFFSET = ICMP_LAYOUT.byteOffset(groupElement("icmp_type"))
+val ICMP_CODE_OFFSET = ICMP_LAYOUT.byteOffset(groupElement("icmp_code"))
+val ICMP_CKSUM_OFFSET = ICMP_LAYOUT.byteOffset(groupElement("icmp_cksum"))
+val ICMP_ID_OFFSET = ICMP_LAYOUT.byteOffset(groupElement("icmp_hun"), groupElement("ih_idseq"), groupElement("icd_id"))
+val ICMP_SEQ_OFFSET = ICMP_LAYOUT.byteOffset(groupElement("icmp_hun"), groupElement("ih_idseq"), groupElement("icd_seq"))
+
+val ICMP6_TYPE_OFFSET = ICMP6_LAYOUT.byteOffset(groupElement("icmp6_type"))
+val ICMP6_CODE_OFFSET = ICMP6_LAYOUT.byteOffset(groupElement("icmp6_code"))
+val ICMP6_CKSUM_OFFSET = ICMP6_LAYOUT.byteOffset(groupElement("icmp6_cksum"))
+val ICMP6_ID_OFFSET = ICMP6_LAYOUT.byteOffset(groupElement("icmp6_dataun"), groupElement("icmp6_un_data16"), sequenceElement(0))
+val ICMP6_SEQ_OFFSET = ICMP6_LAYOUT.byteOffset(groupElement("icmp6_dataun"), groupElement("icmp6_un_data16"), sequenceElement(1))
+
+/*****************************************************************************
+ *                              libc bindings
+ */
+
+object LibC {
+   private val LINKER: Linker = Linker.nativeLinker()
+   private val LIBC: SymbolLookup = LINKER.defaultLookup()
+
+   @JvmStatic val ERRNO_STATE_LAYOUT: StructLayout = Linker.Option.captureStateLayout()
+   private val CAPTURE_ERRNO: Linker.Option = Linker.Option.captureCallState("errno")
+   private val ERRNO_HANDLE: VarHandle = ERRNO_STATE_LAYOUT.varHandle(groupElement("errno"))
+
+   private fun handle(name: String, descriptor: FunctionDescriptor, vararg options: Linker.Option): MethodHandle =
+      LINKER.downcallHandle(LIBC.findOrThrow(name), descriptor, *options)
+
+   // int socket(int domain, int type, int protocol)
+   private val SOCKET = handle("socket", FunctionDescriptor.of(JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT))
+   // int setsockopt(int fd, int level, int option, const void *value, socklen_t len)
+   private val SETSOCKOPT = handle("setsockopt", FunctionDescriptor.of(JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT, ADDRESS, JAVA_INT))
+   // int fcntl(int fd, int cmd, ...)
+   private val FCNTL = handle("fcntl", FunctionDescriptor.of(JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT), Linker.Option.firstVariadicArg(2))
+   // int pipe(int fds[2])
+   private val PIPE = handle("pipe", FunctionDescriptor.of(JAVA_INT, ADDRESS))
+   // int poll(struct pollfd *fds, nfds_t nfds, int timeout) -- nfds_t is unsigned int on BSD, unsigned long on Linux
+   private val POLL = handle("poll", FunctionDescriptor.of(JAVA_INT, ADDRESS, if (isBSD) JAVA_INT else JAVA_LONG, JAVA_INT), CAPTURE_ERRNO)
+   // int close(int fd)
+   private val CLOSE = handle("close", FunctionDescriptor.of(JAVA_INT, JAVA_INT))
+   // ssize_t sendto(int fd, const void *buf, size_t len, int flags, const struct sockaddr *addr, socklen_t addrlen)
+   private val SENDTO = handle("sendto", FunctionDescriptor.of(JAVA_LONG, JAVA_INT, ADDRESS, JAVA_LONG, JAVA_INT, ADDRESS, JAVA_INT))
+   // ssize_t recvfrom(int fd, void *buf, size_t len, int flags, struct sockaddr *addr, socklen_t *addrlen)
+   private val RECVFROM = handle("recvfrom", FunctionDescriptor.of(JAVA_LONG, JAVA_INT, ADDRESS, JAVA_LONG, JAVA_INT, ADDRESS, ADDRESS), CAPTURE_ERRNO)
+   // ssize_t read(int fd, void *buf, size_t count)
+   private val READ = handle("read", FunctionDescriptor.of(JAVA_LONG, JAVA_INT, ADDRESS, JAVA_LONG))
+   // ssize_t write(int fd, const void *buf, size_t count)
+   private val WRITE = handle("write", FunctionDescriptor.of(JAVA_LONG, JAVA_INT, ADDRESS, JAVA_LONG))
+
+   fun socket(domain: Int, type: Int, protocol: Int): Int =
+      SOCKET.invokeExact(domain, type, protocol) as Int
+
+   fun setsockopt(fd: Int, level: Int, option: Int, value: Int): Int =
+      Arena.ofConfined().use { arena ->
+         val valueSegment = arena.allocate(JAVA_INT)
+         valueSegment.set(JAVA_INT, 0L, value)
+         SETSOCKOPT.invokeExact(fd, level, option, valueSegment, JAVA_INT.byteSize().toInt()) as Int
+      }
+
+   fun fcntl(fd: Int, cmd: Int, data: Int): Int =
+      FCNTL.invokeExact(fd, cmd, data) as Int
+
+   fun pipe(fds: IntArray): Int =
+      Arena.ofConfined().use { arena ->
+         val fdsSegment = arena.allocate(JAVA_INT, 2)
+         val rc = PIPE.invokeExact(fdsSegment) as Int
+         fds[0] = fdsSegment.getAtIndex(JAVA_INT, 0L)
+         fds[1] = fdsSegment.getAtIndex(JAVA_INT, 1L)
+         rc
+      }
+
+   fun poll(errnoState: MemorySegment, fds: MemorySegment, nfds: Int, timeoutMs: Int): Int =
+      if (isBSD) POLL.invokeExact(errnoState, fds, nfds, timeoutMs) as Int
+      else POLL.invokeExact(errnoState, fds, nfds.toLong(), timeoutMs) as Int
+
+   fun close(fd: Int): Int =
+      CLOSE.invokeExact(fd) as Int
+
+   fun sendto(fd: Int, buf: MemorySegment, len: Int, flags: Int, addr: SockAddr): Int =
+      (SENDTO.invokeExact(fd, buf, len.toLong(), flags, addr.segment, addr.size) as Long).toInt()
+
+   fun recvfrom(errnoState: MemorySegment, fd: Int, buf: MemorySegment, len: Int, flags: Int): Int =
+      (RECVFROM.invokeExact(errnoState, fd, buf, len.toLong(), flags, MemorySegment.NULL, MemorySegment.NULL) as Long).toInt()
+
+   fun read(fd: Int, buf: MemorySegment, size: Long): Int =
+      (READ.invokeExact(fd, buf, size) as Long).toInt()
+
+   fun write(fd: Int, buf: MemorySegment, size: Long): Int =
+      (WRITE.invokeExact(fd, buf, size) as Long).toInt()
+
+   fun errno(errnoState: MemorySegment): Int =
+      ERRNO_HANDLE.get(errnoState, 0L) as Int
 }
 
-///**
-// * Structure of an icmp6 header
-// */
-//struct icmp6_hdr {
-class Icmp6:Struct(runtime) {
-   // u_char	icmp_type;		/* type of message, see below */
-   // u_char	icmp_code;		/* type sub code */
-   // u_short	icmpCksum;		/* ones complement cksum of struct */
-   val icmp6_type = Unsigned8()
-   val icmp6_code = Unsigned8()
-   val icmp6_cksum = Unsigned16()
-   // union {
-   val icmp6_dataun:Icmp6UnData = inner(Icmp6UnData())
-   // } icmp6_dataun;
-}
+fun htons(s: Short) = java.lang.Short.reverseBytes(s)
 
-//union {
-class Icmp6UnData:Union(runtime) {
-   // u_int32_t icmp6_un_data32[1]; /* type-specific field */
-   // u_int16_t icmp6_un_data16[2]; /* type-specific field */
-   // u_int8_t icmp6_un_data8[4];  /* type-specific field */
-   val icmp6_un_data32 = Array(1) { Unsigned32() }
-   val icmp6_un_data16 = Array(2) { Unsigned16() }
-   val icmp6_un_data8 = Array(4) { Unsigned8() }
-} //} icmp6_dataun;
+fun ntohs(s: Short) = java.lang.Short.reverseBytes(s)
+
+fun htoni(i: Int) = Integer.reverseBytes(i)
+
+fun htonl(value: Long): Long {
+   return ((value and 0xff000000) shr 24) or
+           ((value and 0x00ff0000) shr 8) or
+           ((value and 0x0000ff00) shl 8) or
+           ((value and 0x000000ff) shl 24)
+}
 
 // See https://opensource.apple.com/source/network_cmds/network_cmds-329.2/ping.tproj/ping.c
-fun icmpCksum(buf:Pointer, len:Int) : Int {
+fun icmpCksum(buf: MemorySegment, len: Int): Int {
    var sum = 0
 
    var nleft = len
 
    var offset = 0L
    while (nleft > 1) {
-      // sum += ((buf.get().toInt() and 0xff) or ((buf.get().toInt() and 0xff) shl 8))  // read 16-bit unsigned
-      sum += ((buf.getByte(offset).toInt() and 0xff) or ((buf.getByte(offset + 1).toInt() and 0xff) shl 8))
+      sum += ((buf.get(JAVA_BYTE, offset).toInt() and 0xff) or ((buf.get(JAVA_BYTE, offset + 1).toInt() and 0xff) shl 8))  // read 16-bit unsigned
       nleft -= 2
       offset += 2
    }
 
    if (nleft == 1) {
-      sum += buf.getByte(offset).toShort()
+      sum += buf.get(JAVA_BYTE, offset).toShort()
    }
 
    sum = (sum shr 16) + (sum and 0xffff)

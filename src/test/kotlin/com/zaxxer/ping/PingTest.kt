@@ -2,7 +2,6 @@ package com.zaxxer.ping
 
 import com.zaxxer.ping.impl.*
 import com.zaxxer.ping.impl.util.dumpBuffer
-import jnr.ffi.Struct
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.MethodOrderer
@@ -10,9 +9,11 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestMethodOrder
 import org.junit.jupiter.api.Timeout
 import java.io.IOException
+import java.lang.foreign.Arena
+import java.lang.foreign.MemoryLayout.PathElement.groupElement
+import java.lang.foreign.ValueLayout.JAVA_BYTE
 import java.net.Inet6Address
 import java.net.InetAddress
-import java.nio.ByteBuffer
 import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeUnit.MILLISECONDS
@@ -20,69 +21,79 @@ import java.util.concurrent.atomic.AtomicInteger
 
 @TestMethodOrder(MethodOrderer.OrderAnnotation::class)
 class PingTest {
-   private val runtime:jnr.ffi.Runtime = jnr.ffi.Runtime.getSystemRuntime()!!
 
    @Test
    fun testChecksum() {
-      val buffer = ByteBuffer.allocateDirect(64)
+      Arena.ofConfined().use { arena ->
+         val buffer = arena.allocate(64L)
 
-      for (i in 0..63)
-         buffer.put(i.toByte())
+         for (i in 0..63)
+            buffer.set(JAVA_BYTE, i.toLong(), i.toByte())
 
-      val pointer = runtime.memoryManager.newPointer(buffer)
-      assertEquals(64539, icmpCksum(pointer, 64))
+         assertEquals(64539, icmpCksum(buffer, 64))
 
-      buffer.clear()
-      for (i in 0..63)
-         buffer.put((255 - i).toByte())
+         for (i in 0..63)
+            buffer.set(JAVA_BYTE, i.toLong(), (255 - i).toByte())
 
-      assertEquals(996, icmpCksum(pointer, 64))
+         assertEquals(996, icmpCksum(buffer, 64))
+      }
    }
 
    @Test
    fun testSizesAlignmentsAndEndianess() {
-      assertEquals(20, Struct.size(Ip()))
-      assertEquals(28, Struct.size(Icmp()))
-      assertEquals(2, Icmp().icmp_cksum.offset())
-      assertEquals(4, Icmp().icmp_hun.ih_idseq.icd_id.offset())
-      assertEquals(6, Icmp().icmp_hun.ih_idseq.icd_seq.offset())
-      assertEquals(8, Icmp().icmp_dun.id_data.offset())
-      assertEquals(8, Struct.size(PollFd()))
+      assertEquals(20L, IP_LAYOUT.byteSize())
+      assertEquals(28L, ICMP_LAYOUT.byteSize())
+      assertEquals(2L, ICMP_CKSUM_OFFSET)
+      assertEquals(4L, ICMP_ID_OFFSET)
+      assertEquals(6L, ICMP_SEQ_OFFSET)
+      assertEquals(8L, ICMP_LAYOUT.byteOffset(groupElement("icmp_dun"), groupElement("id_data")))
+      assertEquals(8L, POLLFD_LAYOUT.byteSize())
+      assertEquals(8, SIZEOF_STRUCT_POLL_FD)
 
-      val pollFdBuffer = ByteBuffer.allocateDirect(8)
-      val pollFd = PollFd()
-      pollFd.useMemory(runtime.memoryManager.newPointer(pollFdBuffer))
+      Arena.ofConfined().use { arena ->
+         val pollFdSegment = arena.allocate(POLLFD_LAYOUT)
+         val pollFd = PollFd(pollFdSegment)
 
-      pollFd.fd = 0xBADCAFE
-      pollFd.events = 0xAABB
-      pollFd.revents = 0x2233
-      println(dumpBuffer("poll_fd memory dump:", pollFdBuffer))
-      arrayOf(0xfe, 0xca, 0xad, 0x0b, 0xbb, 0xaa, 0x33, 0x22).forEachIndexed { i, expected ->
-         assertEquals(expected.toByte(), pollFdBuffer.get(i))
+         pollFd.fd = 0xBADCAFE
+         pollFd.events = 0xAABB
+         pollFd.revents = 0x2233
+         println(dumpBuffer("poll_fd memory dump:", pollFdSegment.asByteBuffer()))
+         arrayOf(0xfe, 0xca, 0xad, 0x0b, 0xbb, 0xaa, 0x33, 0x22).forEachIndexed { i, expected ->
+            assertEquals(expected.toByte(), pollFdSegment.get(JAVA_BYTE, i.toLong()))
+         }
       }
    }
 
    @Test
    fun testSizesAndAlignmentsIpv6() {
-      assertEquals(8, Struct.size(Icmp6()))
-      assertEquals(0, Icmp6().icmp6_type.offset())
-      assertEquals(1, Icmp6().icmp6_code.offset())
-      assertEquals(2, Icmp6().icmp6_cksum.offset())
+      assertEquals(8L, ICMP6_LAYOUT.byteSize())
+      assertEquals(0L, ICMP6_TYPE_OFFSET)
+      assertEquals(1L, ICMP6_CODE_OFFSET)
+      assertEquals(2L, ICMP6_CKSUM_OFFSET)
+      assertEquals(4L, ICMP6_ID_OFFSET)
+      assertEquals(6L, ICMP6_SEQ_OFFSET)
 
-      val linuxSockAddr6 = LinuxSockAddr6(InetAddress.getByName("::1") as Inet6Address)
-      assertEquals(28, Struct.size(linuxSockAddr6))
-      assertEquals(0, linuxSockAddr6.sin6_family.offset())
-      assertEquals(2, linuxSockAddr6.sin6_port.offset())
-      assertEquals(4, linuxSockAddr6.sin6_flowinfo.offset())
-      assertEquals(24, linuxSockAddr6.sin6_scope_id.offset())
+      assertEquals(28L, LINUX_SOCKADDR_IN6_LAYOUT.byteSize())
+      assertEquals(0L, LINUX_SOCKADDR_IN6_LAYOUT.byteOffset(groupElement("sin6_family")))
+      assertEquals(2L, LINUX_SOCKADDR_IN6_LAYOUT.byteOffset(groupElement("sin6_port")))
+      assertEquals(4L, LINUX_SOCKADDR_IN6_LAYOUT.byteOffset(groupElement("sin6_flowinfo")))
+      assertEquals(8L, LINUX_SOCKADDR_IN6_LAYOUT.byteOffset(groupElement("sin6_addr")))
+      assertEquals(24L, LINUX_SOCKADDR_IN6_LAYOUT.byteOffset(groupElement("sin6_scope_id")))
 
-      val bsdSockAddr6 = BSDSockAddr6(InetAddress.getByName("::1") as Inet6Address)
-      assertEquals(28, Struct.size(linuxSockAddr6))
-      assertEquals(0, bsdSockAddr6.sin6_len.offset())
-      assertEquals(1, bsdSockAddr6.sin6_family.offset())
-      assertEquals(2, bsdSockAddr6.sin6_port.offset())
-      assertEquals(4, bsdSockAddr6.sin6_flowinfo.offset())
-      assertEquals(24, bsdSockAddr6.sin6_scope_id.offset())
+      assertEquals(28L, BSD_SOCKADDR_IN6_LAYOUT.byteSize())
+      assertEquals(0L, BSD_SOCKADDR_IN6_LAYOUT.byteOffset(groupElement("sin6_len")))
+      assertEquals(1L, BSD_SOCKADDR_IN6_LAYOUT.byteOffset(groupElement("sin6_family")))
+      assertEquals(2L, BSD_SOCKADDR_IN6_LAYOUT.byteOffset(groupElement("sin6_port")))
+      assertEquals(4L, BSD_SOCKADDR_IN6_LAYOUT.byteOffset(groupElement("sin6_flowinfo")))
+      assertEquals(8L, BSD_SOCKADDR_IN6_LAYOUT.byteOffset(groupElement("sin6_addr")))
+      assertEquals(24L, BSD_SOCKADDR_IN6_LAYOUT.byteOffset(groupElement("sin6_scope_id")))
+
+      // Both flavors must be constructible regardless of the host platform
+      val loopback6 = InetAddress.getByName("::1") as Inet6Address
+      assertEquals(28, LinuxSockAddr6(loopback6).size)
+      assertEquals(28, BSDSockAddr6(loopback6).size)
+      assertEquals(16, LinuxSockAddr4(InetAddress.getByName("127.0.0.1") as java.net.Inet4Address).size)
+      assertEquals(16, BSDSockAddr4(InetAddress.getByName("127.0.0.1") as java.net.Inet4Address).size)
    }
 
    @Test

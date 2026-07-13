@@ -6,7 +6,6 @@ kt_jvm_library(
     visibility = ["//visibility:public"],
     deps = [
         "@maven//:com_carrotsearch_hppc",
-        "@maven//:com_github_jnr_jnr_posix",
     ],
 )
 

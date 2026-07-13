@@ -11,7 +11,6 @@ maven.install(
     name = "maven",
     artifacts = [
         # Runtime
-        "com.github.jnr:jnr-posix:3.1.20",
         "com.carrotsearch:hppc:0.10.0",
         "org.jetbrains.kotlin:kotlin-stdlib:2.3.20",
         # Test

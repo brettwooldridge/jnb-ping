@@ -16,7 +16,7 @@ define_kt_toolchain(
     name = "kotlin_toolchain",
     api_version = "2.1",
     experimental_use_abi_jars = True,
-    jvm_target = "21",
+    jvm_target = "25",
     kotlinc_options = "//:kotlinc_options",
     language_version = "2.1",
 )

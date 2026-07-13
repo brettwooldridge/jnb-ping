@@ -17,22 +17,16 @@
 package com.zaxxer.ping
 
 import com.zaxxer.ping.impl.*
-import com.zaxxer.ping.impl.NativeStatic.Companion.isBSD
-import com.zaxxer.ping.impl.NativeStatic.Companion.libc
-import com.zaxxer.ping.impl.NativeStatic.Companion.posix
-import com.zaxxer.ping.impl.NativeStatic.Companion.runtime
 import com.zaxxer.ping.impl.util.WaitingTargetCollection
 import com.zaxxer.ping.impl.util.dumpBuffer
-import jnr.constants.platform.Errno
-import jnr.ffi.Pointer
-import jnr.ffi.Struct
-import jnr.ffi.byref.IntByReference
-import jnr.posix.MsgHdr
 import java.lang.System.nanoTime
+import java.lang.foreign.Arena
+import java.lang.foreign.MemorySegment
+import java.lang.foreign.ValueLayout.JAVA_BYTE
+import java.lang.foreign.ValueLayout.JAVA_SHORT
 import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
-import java.nio.ByteBuffer
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit.*
 import java.util.concurrent.atomic.AtomicBoolean
@@ -162,51 +156,40 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
    private val pending4Pings = LinkedBlockingQueue<PingTarget>(PENDING_QUEUE_SIZE)
    private val pending6Pings = LinkedBlockingQueue<PingTarget>(PENDING_QUEUE_SIZE)
 
-   private val prebuiltBuffer:ByteBuffer = ByteBuffer.allocateDirect(BUFFER_SIZE.toInt())
-   private val socketBuffer:ByteBuffer = ByteBuffer.allocateDirect(BUFFER_SIZE.toInt())
-   private val fdBuffer:ByteBuffer = ByteBuffer.allocateDirect(SIZEOF_STRUCT_POLL_FD * FDS)
+   // GC-managed arena: native memory lives as long as this IcmpPinger instance
+   private val arena:Arena = Arena.ofAuto()
 
-   private val prebuiltBufferPointer:Pointer = runtime.memoryManager.newPointer(prebuiltBuffer)
-   private val socketBufferPointer:Pointer = runtime.memoryManager.newPointer(socketBuffer)
-   private val outpacketPointer:Pointer = socketBufferPointer.slice(SIZEOF_STRUCT_IP.toLong())
-   private val fdBufferPointer:Pointer = runtime.memoryManager.newPointer(fdBuffer)
+   private val prebuiltPacket:MemorySegment = arena.allocate(BUFFER_SIZE, 8L)
+   private val socketBuffer:MemorySegment = arena.allocate(BUFFER_SIZE, 8L)
+   private val fdsSegment:MemorySegment = arena.allocate(SIZEOF_STRUCT_POLL_FD.toLong() * FDS, 8L)
+   private val errnoState:MemorySegment = arena.allocate(LibC.ERRNO_STATE_LAYOUT)
 
-   private val icmp:Icmp = Icmp()
-   private val icmp6:Icmp6 = Icmp6()
-   private val recvIp:Ip = Ip()
-   private val msgHdr:MsgHdr = posix.allocateMsgHdr()
+   private val outpacket:MemorySegment = socketBuffer.asSlice(SIZEOF_STRUCT_IP.toLong())
+   private val socketByteBuffer = socketBuffer.asByteBuffer()
 
-   private val fdPipe:PollFd = PollFd()
-   private val fd4:PollFd = PollFd()
-   private val fd6:PollFd = PollFd()
+   private val fdPipe:PollFd = PollFd(fdsSegment.asSlice(0L, SIZEOF_STRUCT_POLL_FD.toLong()))
+   private val fd4:PollFd = PollFd(fdsSegment.asSlice(SIZEOF_STRUCT_POLL_FD.toLong(), SIZEOF_STRUCT_POLL_FD.toLong()))
+   private val fd6:PollFd = PollFd(fdsSegment.asSlice(SIZEOF_STRUCT_POLL_FD.toLong() * 2, SIZEOF_STRUCT_POLL_FD.toLong()))
 
    private val awoken = AtomicBoolean(false)
    private val pipefd = IntArray(2) { -1 }
-   private val wakeupWriteBuf = ByteArray(1)
-   private val wakeupReadBuf = ByteArray(1)
+   private val wakeupWriteSegment:MemorySegment = arena.allocate(1L)
+   private val wakeupReadSegment:MemorySegment = arena.allocate(1L)
 
    private var running = AtomicBoolean(false)
    private var sequenceCounter = SEQUENCE_INIT
 
    init {
-      val tmpBuffer = prebuiltBuffer.duplicate()
-      tmpBuffer.position(SIZEOF_STRUCT_IP + ICMP_MINLEN)
       for (i in 0 until DEFAULT_DATALEN)
-         tmpBuffer.put(i.toByte())
+         prebuiltPacket.set(JAVA_BYTE, (SIZEOF_STRUCT_IP + ICMP_MINLEN + i).toLong(), i.toByte())
 
-      icmp.useMemory(outpacketPointer)
-      recvIp.useMemory(socketBufferPointer)
-
-      arrayOf(fdPipe, fd4, fd6).forEachIndexed { i, fd ->
-         fd.useMemory(fdBufferPointer.slice(SIZEOF_STRUCT_POLL_FD.toLong() * i))
+      arrayOf(fdPipe, fd4, fd6).forEach { fd ->
          fd.events = POLLIN_OR_PRI or POLLOUT or POLLERR
          fd.revents = 0
       }
 
       fd4.fd = -1
       fd6.fd = -1
-
-      msgHdr.iov = arrayOf(socketBuffer)
    }
 
    fun ping(pingTarget: PingTarget) {
@@ -232,17 +215,17 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
          // To avoid leaks of file descriptors, creation and destruction
          // of pipe channels is done during the runSelector call
          synchronized(pipefd) {
-            libc.pipe(pipefd)
+            LibC.pipe(pipefd)
             setNonBlocking(pipefd[0])
             setNonBlocking(pipefd[1])
             fdPipe.fd = pipefd[0]
          }
 
          while (running.get()) {
-            val rc = libc.poll(fdBufferPointer, FDS, pollTimeoutMs)
+            val rc = LibC.poll(errnoState, fdsSegment, FDS, pollTimeoutMs)
             if (rc < 0) {
-               val errno = posix.errno()
-               if (errno != Errno.EINTR.intValue()) {
+               val errno = LibC.errno(errnoState)
+               if (errno != EINTR) {
                   LOGGER.severe("poll() returned errno $errno")
                   break
                }
@@ -295,15 +278,15 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
             fd6.events = fd6events
          }
       } finally {
-         if (fd4.fd > 0) libc.close(fd4.fd)
-         if (fd6.fd > 0) libc.close(fd6.fd)
+         if (fd4.fd > 0) LibC.close(fd4.fd)
+         if (fd6.fd > 0) LibC.close(fd6.fd)
          fd4.fd = -1
          fd6.fd = -1
 
          synchronized(pipefd) {
             running.set(false)
-            libc.close(pipefd[0])
-            libc.close(pipefd[1])
+            LibC.close(pipefd[0])
+            LibC.close(pipefd[1])
             pipefd[0] = -1
             pipefd[1] = -1
          }
@@ -395,40 +378,41 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
    }
 
    private fun sendIcmp(pingTarget: PingTarget, fd: FD) : Boolean {
-      prebuiltBufferPointer.transferTo(0, socketBufferPointer, 0, (SIZEOF_STRUCT_IP + SEND_PACKET_SIZE).toLong())
+      MemorySegment.copy(prebuiltPacket, 0L, socketBuffer, 0L, (SIZEOF_STRUCT_IP + SEND_PACKET_SIZE).toLong())
 
       pingTarget.sequence = (sequenceCounter++ and 0xffff).toShort()
 
+      // Note: the ICMP id and sequence are stored in native (little-endian) byte order rather
+      // than network order; only this library reads them back, and the echo reply returns the
+      // bytes verbatim, so they round-trip correctly.
       if (pingTarget.isIPv4()) {
-         icmp.useMemory(outpacketPointer)
-         icmp.icmp_hun.ih_idseq.icd_seq.set(htons(pingTarget.sequence))
-         icmp.icmp_hun.ih_idseq.icd_id.set(htons(pingTarget.id))
-         icmp.icmp_type.set(ICMP_ECHO)
-         icmp.icmp_code.set(0)
-         icmp.icmp_cksum.set(0)
+         outpacket.set(JAVA_SHORT, ICMP_SEQ_OFFSET, pingTarget.sequence)
+         outpacket.set(JAVA_SHORT, ICMP_ID_OFFSET, pingTarget.id)
+         outpacket.set(JAVA_BYTE, ICMP_TYPE_OFFSET, ICMP_ECHO.toByte())
+         outpacket.set(JAVA_BYTE, ICMP_CODE_OFFSET, 0)
+         outpacket.set(JAVA_SHORT, ICMP_CKSUM_OFFSET, 0)
          // In BSD, we are responsible for the entire payload, including checksum.  Linux mucks with the payload (replacing
          // the identity field, and therefore recalculates the checksum, so don't waste our time doing it here).
          if (isBSD) {
-            val cksum = icmpCksum(outpacketPointer, SEND_PACKET_SIZE)
-            icmp.icmp_cksum.set(htons(cksum.toShort()))
+            val cksum = icmpCksum(outpacket, SEND_PACKET_SIZE)
+            outpacket.set(JAVA_SHORT, ICMP_CKSUM_OFFSET, cksum.toShort())
          }
       } else {
-         icmp6.useMemory(outpacketPointer)
-         icmp6.icmp6_dataun.icmp6_un_data32[0].set(htons(pingTarget.sequence))
-         icmp6.icmp6_type.set(ICMPV6_ECHO_REQUEST)
-         icmp6.icmp6_code.set(0)
-         icmp6.icmp6_cksum.set(0)
+         outpacket.set(JAVA_SHORT, ICMP6_SEQ_OFFSET, pingTarget.sequence)
+         outpacket.set(JAVA_BYTE, ICMP6_TYPE_OFFSET, ICMPV6_ECHO_REQUEST.toByte())
+         outpacket.set(JAVA_BYTE, ICMP6_CODE_OFFSET, 0)
+         outpacket.set(JAVA_SHORT, ICMP6_CKSUM_OFFSET, 0)
          if (isBSD) {
-            val cksum = icmpCksum(outpacketPointer, SEND_PACKET_SIZE)
-            icmp6.icmp6_cksum.set(htons(cksum.toShort()))
+            val cksum = icmpCksum(outpacket, SEND_PACKET_SIZE)
+            outpacket.set(JAVA_SHORT, ICMP6_CKSUM_OFFSET, cksum.toShort())
          }
       }
 
-      if (LOGGER.level == Level.FINEST) LOGGER.finest { dumpBuffer(message = "Send buffer:", buffer = socketBuffer) }
+      if (LOGGER.level == Level.FINEST) LOGGER.finest { dumpBuffer(message = "Send buffer:", buffer = socketByteBuffer) }
 
       pingTarget.timestamp()
 
-      val rc = libc.sendto(fd, outpacketPointer, SEND_PACKET_SIZE, 0, pingTarget.sockAddr, Struct.size(pingTarget.sockAddr))
+      val rc = LibC.sendto(fd, outpacket, SEND_PACKET_SIZE, 0, pingTarget.sockAddr)
       return if (rc == SEND_PACKET_SIZE) {
           if (LOGGER.level == Level.FINE) LOGGER.fine {"   ICMP packet(seq=${pingTarget.sequence}) send to ${pingTarget.inetAddress} successful"}
           true
@@ -441,42 +425,42 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
 
    private fun recvIcmp(fd: FD, isIPv4: Boolean) : Boolean {
 
-      val cc = posix.recvmsg(fd, msgHdr, 0)
+      val cc = LibC.recvfrom(errnoState, fd, socketBuffer, BUFFER_SIZE.toInt(), 0)
       if (cc < 0) {
-         val errno = posix.errno()
-         if (errno == Errno.EAGAIN.intValue()) return false
-         if (errno == Errno.EINTR.intValue()) return true
-         LOGGER.fine {"   Error code $errno returned from pingChannel.read()"}
+         val errno = LibC.errno(errnoState)
+         if (errno == EAGAIN) return false
+         if (errno == EINTR) return true
+         LOGGER.fine {"   Error code $errno returned from recvfrom()"}
          return false
       }
 
-      if (LOGGER.level == Level.FINEST) LOGGER.finest(dumpBuffer("Ping response", socketBuffer))
+      if (LOGGER.level == Level.FINEST) LOGGER.finest(dumpBuffer("Ping response", socketByteBuffer))
 
       val seq: Short
       val waitingTargets: WaitingTargetCollection
 
       if (isIPv4) {
-         if (isBSD) {
-            val headerLen = ((recvIp.ip_vhl.longValue() and 0x0f) shl 2).toInt()
-            icmp.useMemory(if (headerLen == SIZEOF_STRUCT_IP) outpacketPointer else socketBufferPointer.slice(headerLen.toLong()))
+         // BSD SOCK_DGRAM ICMP sockets deliver the IP header before the ICMP message; Linux does not
+         val icmpSegment = if (isBSD) {
+            val headerLen = (socketBuffer.get(JAVA_BYTE, 0L).toInt() and 0x0f) shl 2
+            socketBuffer.asSlice(headerLen.toLong())
          } else {
-            icmp.useMemory(socketBufferPointer)
+            socketBuffer
          }
-         val icmpType = icmp.icmp_type.get()
-         if (icmpType != ICMP_ECHOREPLY) {
+         val icmpType = icmpSegment.get(JAVA_BYTE, ICMP_TYPE_OFFSET).toInt() and 0xff
+         if (icmpType != ICMP_ECHOREPLY.toInt()) {
             LOGGER.fine("   ^ Opps, not our response.")
             return true
          }
-         seq = ntohs(icmp.icmp_hun.ih_idseq.icd_seq.shortValue())
+         seq = icmpSegment.get(JAVA_SHORT, ICMP_SEQ_OFFSET)
          waitingTargets = waitingTargets4
       } else {
-         icmp6.useMemory(socketBufferPointer)
-         val icmpType = icmp6.icmp6_type.get()
-         if (icmpType != ICMPV6_ECHO_REPLY) {
+         val icmpType = socketBuffer.get(JAVA_BYTE, ICMP6_TYPE_OFFSET).toInt() and 0xff
+         if (icmpType != ICMPV6_ECHO_REPLY.toInt()) {
             LOGGER.fine("   ^ Opps, not our response.")
             return true
          }
-         seq = ntohs(icmp6.icmp6_dataun.icmp6_un_data32[0].shortValue())
+         seq = socketBuffer.get(JAVA_SHORT, ICMP6_SEQ_OFFSET)
          waitingTargets = waitingTargets6
       }
 
@@ -495,30 +479,28 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
    private fun wakeup() {
       synchronized(pipefd) {
          if (pipefd[1] > 0) {
-            libc.write(pipefd[1], wakeupWriteBuf, 1)
+            LibC.write(pipefd[1], wakeupWriteSegment, 1L)
          }
       }
    }
 
    private fun wakeupReceived() {
-      while (libc.read(pipefd[0], wakeupReadBuf, 1) > 0) {
+      while (LibC.read(pipefd[0], wakeupReadSegment, 1L) > 0) {
          // drain the wakeup pipe
       }
    }
 
     private fun createSocket(isIPv4: Boolean): FD {
        val fd = when (isIPv4) {
-          true -> libc.socket(PF_INET, SOCK_DGRAM, IPPROTO_ICMP)
-          false -> libc.socket(PF_INET6, SOCK_DGRAM, IPPROTO_ICMPV6)
+          true -> LibC.socket(PF_INET, SOCK_DGRAM, IPPROTO_ICMP)
+          false -> LibC.socket(PF_INET6, SOCK_DGRAM, IPPROTO_ICMPV6)
        }
 
        if (fd > 0) {
-          val on = IntByReference(1)
-          libc.setsockopt(fd, SOL_SOCKET, SO_TIMESTAMP, on, on.nativeSize(runtime))
+          LibC.setsockopt(fd, SOL_SOCKET, SO_TIMESTAMP, 1)
 
           // Better handled by altering the OS default rcvbuf size
-          // val rcvbuf = IntByReference(2048)
-          // libc.setsockopt(fd, SOL_SOCKET, SO_RCVBUF, rcvbuf, rcvbuf.nativeSize(runtime))
+          // LibC.setsockopt(fd, SOL_SOCKET, SO_RCVBUF, 2048)
 
           setNonBlocking(fd)
        }
@@ -532,6 +514,6 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
 }
 
 private fun setNonBlocking(fd: FD) {
-   val flags4 = libc.fcntl(fd, F_GETFL, 0) or O_NONBLOCK
-   libc.fcntl(fd, F_SETFL, flags4.toLong())
+   val flags = LibC.fcntl(fd, F_GETFL, 0) or O_NONBLOCK
+   LibC.fcntl(fd, F_SETFL, flags)
 }

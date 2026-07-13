@@ -21,7 +21,10 @@ java_test(
         "--disable-banner",
     ],
     data = ["//src/test/resources:logging.properties"],
-    jvm_flags = ["-Djava.util.logging.config.file=$(rootpath //src/test/resources:logging.properties)"],
+    jvm_flags = [
+        "-Djava.util.logging.config.file=$(rootpath //src/test/resources:logging.properties)",
+        "--enable-native-access=ALL-UNNAMED",
+    ],
     local = True,
     tags = ["requires-network"],
     test_class = "com.zaxxer.ping.PingTest",

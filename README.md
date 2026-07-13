@@ -5,11 +5,13 @@
 [![][Maven Central img]][Maven Central]
 [![][Javadocs img]][Javadocs]
 
-A non-blocking ICMP library for Java, using JNA to access native APIs, supporting thousands of simultaneous ICMP ping targets.  Written in Kotlin, but compatible with Java (or any JVM-hosted language).
+A non-blocking ICMP library for Java, using the Java Foreign Function & Memory (FFM) API to access native APIs, supporting thousands of simultaneous ICMP ping targets.  Written in Kotlin, but compatible with Java (or any JVM-hosted language).
 
 Currently, only Linux and MacOS X are supported.
 
-Version 3.x supports Java 11+, but starting with 4.x the library requires Java 21+.
+Version 3.x supports Java 11+, version 4.x requires Java 21+, and starting with 5.x the library requires Java 25+ (it is built on the FFM API instead of JNA/JNR).
+
+Because the library performs native calls via the FFM API, run your application with `--enable-native-access=ALL-UNNAMED` (or grant native access to the module reading this library) to silence the JVM's restricted-native-access warning.
 
 Example (Kotlin):
 ```kotlin
@@ -39,7 +41,7 @@ pinger.stopSelector()
 
 ## Building
 
-Requires [Bazel](https://bazel.build/) 8.7.x and JDK 21+.
+Requires [Bazel](https://bazel.build/) 8.7.x and JDK 25+.
 
 ```bash
 bazel build //:jnb-ping                                   # compile library
@@ -47,7 +49,7 @@ bazel test //src/test/kotlin/com/zaxxer/ping:ping-tests   # run tests (JUnit 5)
 bazel build //:dist_maven_artifacts                       # jar, sources, javadoc, pom for publishing
 ```
 
-Tests require ICMP socket permissions. On Linux, set `sysctl net.ipv4.ping_group_range` (and `net.ipv6.ping_group_range` for IPv6). macOS works without special config. Some tests ping external hosts so network access is required.
+Tests require ICMP socket permissions. On Linux, set `sysctl net.ipv4.ping_group_range` (and `net.ipv6.ping_group_range` for IPv6). macOS works without a special config. Some tests ping external hosts so network access is required.
 
 ## Linux Kernel Support
 
