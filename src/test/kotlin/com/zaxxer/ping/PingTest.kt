@@ -394,6 +394,31 @@ class PingTest {
       secondRun.join(5_000)
    }
 
+   @Test
+   @Timeout(60)
+   fun testRejectedSecondRunSelectorDoesNotStopTheRunningSelector() {
+      val responses = LinkedBlockingQueue<Boolean>()
+      val pinger = IcmpPinger(recordingHandler(responses))
+      val selectorThread = Thread { pinger.runSelector() }
+      selectorThread.isDaemon = true
+      selectorThread.start()
+      awaitFirstAnswer(pinger, responses)
+
+      var secondStartRejected = false
+      try {
+         pinger.runSelector()
+      } catch (e: IllegalStateException) {
+         secondStartRejected = true
+      }
+
+      assertTrue(secondStartRejected)
+      responses.clear()
+      pinger.ping(PingTarget(LOOPBACK, timeoutMs = 1_000))
+      assertEquals(true, responses.poll(3, TimeUnit.SECONDS), "the running selector stopped answering after a rejected second runSelector()")
+      pinger.stopSelector()
+      selectorThread.join(5_000)
+   }
+
    private fun recordingHandler(responses: LinkedBlockingQueue<Boolean>) = object : PingResponseHandler {
       override fun onResponse(pingTarget: PingTarget, responseTimeSec: Double, byteCount: Int, seq: Int) {
          responses.add(true)
