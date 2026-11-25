@@ -15,9 +15,11 @@ import java.lang.foreign.ValueLayout.JAVA_BYTE
 import java.net.Inet6Address
 import java.net.InetAddress
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeUnit.MILLISECONDS
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 private const val START_RACE_ROUNDS = 200
@@ -368,6 +370,58 @@ class PingTest {
          selectorThread.join(5_000)
       }
       assertEquals(0, hangs, "$hangs of $START_RACE_ROUNDS pings sent while the selector started were never processed")
+   }
+
+   @Test
+   @Timeout(60)
+   fun testRestartedSelectorWakesUpWhenAwokenWasLeftSet() {
+      val responses = LinkedBlockingQueue<Boolean>()
+      val pinger = IcmpPinger(recordingHandler(responses))
+      val firstRun = Thread { pinger.runSelector() }
+      firstRun.isDaemon = true
+      firstRun.start()
+      awaitFirstAnswer(pinger, responses)
+      pinger.stopSelector()
+      firstRun.join(5_000)
+      awoken(pinger).set(true)
+
+      val secondRun = Thread { pinger.runSelector() }
+      secondRun.isDaemon = true
+      secondRun.start()
+
+      assertTrue(answersWithin(pinger, responses, 3_000), "a restarted selector never answered: `awoken` left set by the previous run is never cleared")
+      pinger.stopSelector()
+      secondRun.join(5_000)
+   }
+
+   private fun recordingHandler(responses: LinkedBlockingQueue<Boolean>) = object : PingResponseHandler {
+      override fun onResponse(pingTarget: PingTarget, responseTimeSec: Double, byteCount: Int, seq: Int) {
+         responses.add(true)
+      }
+
+      override fun onFailure(pingTarget: PingTarget, failureReason: FailureReason) {
+         responses.add(false)
+      }
+   }
+
+   private fun awaitFirstAnswer(pinger: IcmpPinger, responses: LinkedBlockingQueue<Boolean>) {
+      assertTrue(answersWithin(pinger, responses, 5_000), "the selector never answered its first ping")
+      responses.clear()
+   }
+
+   private fun answersWithin(pinger: IcmpPinger, responses: LinkedBlockingQueue<Boolean>, budgetMs: Long): Boolean {
+      val deadline = System.currentTimeMillis() + budgetMs
+      while (System.currentTimeMillis() < deadline) {
+         pinger.ping(PingTarget(LOOPBACK, timeoutMs = 1_000))
+         if (responses.poll(200, TimeUnit.MILLISECONDS) == true) return true
+      }
+      return false
+   }
+
+   private fun awoken(pinger: IcmpPinger): AtomicBoolean {
+      val field = IcmpPinger::class.java.getDeclaredField("awoken")
+      field.isAccessible = true
+      return field.get(pinger) as AtomicBoolean
    }
 
    private fun getIpv6Address() : String {

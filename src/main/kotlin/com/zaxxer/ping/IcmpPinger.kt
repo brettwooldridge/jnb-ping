@@ -216,6 +216,8 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
                LOGGER.severe("Selector is already running")
                "Selector is already running"
             }
+            // A ping racing with the previous stopSelector() may have left it set with no wake-up to consume.
+            awoken.set(false)
             LibC.pipe(pipefd)
             setNonBlocking(pipefd[0])
             setNonBlocking(pipefd[1])
