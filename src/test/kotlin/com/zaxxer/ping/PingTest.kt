@@ -14,10 +14,16 @@ import java.lang.foreign.MemoryLayout.PathElement.groupElement
 import java.lang.foreign.ValueLayout.JAVA_BYTE
 import java.net.Inet6Address
 import java.net.InetAddress
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeUnit.MILLISECONDS
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+
+private const val START_RACE_ROUNDS = 200
+private val LOOPBACK: InetAddress = InetAddress.getByName("127.0.0.1")
 
 @TestMethodOrder(MethodOrderer.OrderAnnotation::class)
 class PingTest {
@@ -323,6 +329,124 @@ class PingTest {
       assertEquals(0, successCount.get(), "There should be no successful pings")
 
       pinger.stopSelector()
+   }
+
+   @Test
+   @Timeout(120)
+   fun testPingDuringSelectorStartIsNotLost() {
+      var hangs = 0
+      repeat(START_RACE_ROUNDS) {
+         val answered = CountDownLatch(1)
+         val declined = AtomicInteger()
+         val pinger = IcmpPinger(object : PingResponseHandler {
+            override fun onResponse(pingTarget: PingTarget, responseTimeSec: Double, byteCount: Int, seq: Int) {
+               answered.countDown()
+            }
+
+            override fun onFailure(pingTarget: PingTarget, failureReason: FailureReason) {
+               if (failureReason == FailureReason.SelectorStopped) declined.incrementAndGet() else answered.countDown()
+            }
+         })
+
+         val pingingStarted = CountDownLatch(1)
+         val pingingThread = Thread {
+            pingingStarted.countDown()
+            while (true) {
+               val before = declined.get()
+               pinger.ping(PingTarget(LOOPBACK, timeoutMs = 100))
+               if (declined.get() == before) break // accepted: the selector reported running
+            }
+         }
+         pingingThread.isDaemon = true
+         pingingThread.start()
+         pingingStarted.await()
+         val selectorThread = Thread { pinger.runSelector() }
+         selectorThread.isDaemon = true
+         selectorThread.start()
+
+         pingingThread.join(5_000)
+         if (!answered.await(3, TimeUnit.SECONDS)) hangs++
+         pinger.stopSelector()
+         selectorThread.join(5_000)
+      }
+      assertEquals(0, hangs, "$hangs of $START_RACE_ROUNDS pings sent while the selector started were never processed")
+   }
+
+   @Test
+   @Timeout(60)
+   fun testRestartedSelectorWakesUpWhenAwokenWasLeftSet() {
+      val responses = LinkedBlockingQueue<Boolean>()
+      val pinger = IcmpPinger(recordingHandler(responses))
+      val firstRun = Thread { pinger.runSelector() }
+      firstRun.isDaemon = true
+      firstRun.start()
+      awaitFirstAnswer(pinger, responses)
+      pinger.stopSelector()
+      firstRun.join(5_000)
+      awoken(pinger).set(true)
+
+      val secondRun = Thread { pinger.runSelector() }
+      secondRun.isDaemon = true
+      secondRun.start()
+
+      assertTrue(answersWithin(pinger, responses, 3_000), "a restarted selector never answered: `awoken` left set by the previous run is never cleared")
+      pinger.stopSelector()
+      secondRun.join(5_000)
+   }
+
+   @Test
+   @Timeout(60)
+   fun testRejectedSecondRunSelectorDoesNotStopTheRunningSelector() {
+      val responses = LinkedBlockingQueue<Boolean>()
+      val pinger = IcmpPinger(recordingHandler(responses))
+      val selectorThread = Thread { pinger.runSelector() }
+      selectorThread.isDaemon = true
+      selectorThread.start()
+      awaitFirstAnswer(pinger, responses)
+
+      var secondStartRejected = false
+      try {
+         pinger.runSelector()
+      } catch (e: IllegalStateException) {
+         secondStartRejected = true
+      }
+
+      assertTrue(secondStartRejected)
+      responses.clear()
+      pinger.ping(PingTarget(LOOPBACK, timeoutMs = 1_000))
+      assertEquals(true, responses.poll(3, TimeUnit.SECONDS), "the running selector stopped answering after a rejected second runSelector()")
+      pinger.stopSelector()
+      selectorThread.join(5_000)
+   }
+
+   private fun recordingHandler(responses: LinkedBlockingQueue<Boolean>) = object : PingResponseHandler {
+      override fun onResponse(pingTarget: PingTarget, responseTimeSec: Double, byteCount: Int, seq: Int) {
+         responses.add(true)
+      }
+
+      override fun onFailure(pingTarget: PingTarget, failureReason: FailureReason) {
+         responses.add(false)
+      }
+   }
+
+   private fun awaitFirstAnswer(pinger: IcmpPinger, responses: LinkedBlockingQueue<Boolean>) {
+      assertTrue(answersWithin(pinger, responses, 5_000), "the selector never answered its first ping")
+      responses.clear()
+   }
+
+   private fun answersWithin(pinger: IcmpPinger, responses: LinkedBlockingQueue<Boolean>, budgetMs: Long): Boolean {
+      val deadline = System.currentTimeMillis() + budgetMs
+      while (System.currentTimeMillis() < deadline) {
+         pinger.ping(PingTarget(LOOPBACK, timeoutMs = 1_000))
+         if (responses.poll(200, TimeUnit.MILLISECONDS) == true) return true
+      }
+      return false
+   }
+
+   private fun awoken(pinger: IcmpPinger): AtomicBoolean {
+      val field = IcmpPinger::class.java.getDeclaredField("awoken")
+      field.isAccessible = true
+      return field.get(pinger) as AtomicBoolean
    }
 
    private fun getIpv6Address() : String {
