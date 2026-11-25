@@ -14,10 +14,14 @@ import java.lang.foreign.MemoryLayout.PathElement.groupElement
 import java.lang.foreign.ValueLayout.JAVA_BYTE
 import java.net.Inet6Address
 import java.net.InetAddress
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeUnit.MILLISECONDS
 import java.util.concurrent.atomic.AtomicInteger
+
+private const val START_RACE_ROUNDS = 200
+private val LOOPBACK: InetAddress = InetAddress.getByName("127.0.0.1")
 
 @TestMethodOrder(MethodOrderer.OrderAnnotation::class)
 class PingTest {
@@ -323,6 +327,47 @@ class PingTest {
       assertEquals(0, successCount.get(), "There should be no successful pings")
 
       pinger.stopSelector()
+   }
+
+   @Test
+   @Timeout(120)
+   fun testPingDuringSelectorStartIsNotLost() {
+      var hangs = 0
+      repeat(START_RACE_ROUNDS) {
+         val answered = CountDownLatch(1)
+         val declined = AtomicInteger()
+         val pinger = IcmpPinger(object : PingResponseHandler {
+            override fun onResponse(pingTarget: PingTarget, responseTimeSec: Double, byteCount: Int, seq: Int) {
+               answered.countDown()
+            }
+
+            override fun onFailure(pingTarget: PingTarget, failureReason: FailureReason) {
+               if (failureReason == FailureReason.SelectorStopped) declined.incrementAndGet() else answered.countDown()
+            }
+         })
+
+         val pingingStarted = CountDownLatch(1)
+         val pingingThread = Thread {
+            pingingStarted.countDown()
+            while (true) {
+               val before = declined.get()
+               pinger.ping(PingTarget(LOOPBACK, timeoutMs = 100))
+               if (declined.get() == before) break // accepted: the selector reported running
+            }
+         }
+         pingingThread.isDaemon = true
+         pingingThread.start()
+         pingingStarted.await()
+         val selectorThread = Thread { pinger.runSelector() }
+         selectorThread.isDaemon = true
+         selectorThread.start()
+
+         pingingThread.join(5_000)
+         if (!answered.await(3, TimeUnit.SECONDS)) hangs++
+         pinger.stopSelector()
+         selectorThread.join(5_000)
+      }
+      assertEquals(0, hangs, "$hangs of $START_RACE_ROUNDS pings sent while the selector started were never processed")
    }
 
    private fun getIpv6Address() : String {

@@ -207,14 +207,15 @@ class IcmpPinger(private val responseHandler:PingResponseHandler) {
       var pollTimeoutMs:Int = -1 // infinite
 
       try {
-         check(running.compareAndSet(false, true)) {
-            LOGGER.severe("Selector is already running")
-            "Selector is already running"
-         }
-
          // To avoid leaks of file descriptors, creation and destruction
          // of pipe channels is done during the runSelector call
+         // `running` is set under the same lock as the pipe creation: a ping() that sees it set waits in wakeup()
+         // until the pipe exists, so its wake-up is never lost.
          synchronized(pipefd) {
+            check(running.compareAndSet(false, true)) {
+               LOGGER.severe("Selector is already running")
+               "Selector is already running"
+            }
             LibC.pipe(pipefd)
             setNonBlocking(pipefd[0])
             setNonBlocking(pipefd[1])
